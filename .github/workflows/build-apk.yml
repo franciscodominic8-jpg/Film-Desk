@@ -21,8 +21,20 @@ jobs:
 
       - name: Build debug and release APKs
         run: |
+          set -o pipefail
           chmod +x gradlew
-          ./gradlew assembleDebug assembleRelease --no-daemon --stacktrace
+          ./gradlew assembleDebug assembleRelease --no-daemon --continue 2>&1 | tee build.log
+
+      # On failure, show the compiler errors as annotations on the run page.
+      - name: Show compile errors
+        if: failure()
+        run: |
+          grep -E "^e: " build.log | sed -E 's#file:///home/runner/work/[^/]+/[^/]+/app/src/main/java/com/filmdesk/app/##' | head -10 | while IFS= read -r line; do
+            echo "::error::$line"
+          done
+          grep -A3 "What went wrong" build.log | head -12 | while IFS= read -r line; do
+            [ -n "$line" ] && echo "::warning::$line"
+          done
 
       - uses: actions/upload-artifact@v4
         with:
