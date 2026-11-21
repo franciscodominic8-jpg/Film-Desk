@@ -80,6 +80,7 @@ fun EditorScreen(vm: EditorViewModel) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
         // Wide = unfolded foldable, tablet, or phone in landscape.
         val wide = maxWidth >= 600.dp
+        val panelWidth = if (maxWidth >= 840.dp) 380.dp else 320.dp
         if (wide) {
             Row(Modifier.fillMaxSize()) {
                 Column(Modifier.weight(1f).fillMaxHeight()) {
@@ -89,7 +90,7 @@ fun EditorScreen(vm: EditorViewModel) {
                 }
                 Box(
                     Modifier
-                        .width(if (maxWidth >= 840.dp) 380.dp else 320.dp)
+                        .width(panelWidth)
                         .fillMaxHeight()
                         .background(FD.Panel)
                 ) { ToolPanel(vm, Modifier.fillMaxSize()) }
