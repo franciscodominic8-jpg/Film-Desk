@@ -430,14 +430,17 @@ object ImageEngine {
      */
     private suspend fun smoothSkin(px: IntArray, w: Int, h: Int, level: Int) {
         val long = max(w, h)
-        val r = max(2, long / 300)                     // filter radius scales with resolution
-        val eps = if (level == 1) 0.0012f else 0.0030f // edge threshold (higher = smoother)
-        val amount = if (level == 1) 0.6f else 0.88f
-        val colourAmt = if (level == 1) 0.25f else 0.45f
+        // Radius big enough that freckles/spots are "small" inside the window, so the
+        // guided filter smooths them, while long edges (brows, lashes, lips) still win.
+        val r = max(3, long / 140)
+        val rc = r * 3                                   // wider radius for evening out colour
+        val eps = if (level == 1) 0.0025f else 0.0060f   // edge threshold (higher = smoother)
+        val amount = if (level == 1) 0.7f else 0.92f
+        val colourAmt = if (level == 1) 0.45f else 0.75f
         val src = px.copyOf()
-        val margin = 2 * r + 2
-        // Keep each strip's working memory to ~24 MB (10 float planes).
-        val stripH = (24_000_000 / (w * 40) - 2 * margin).coerceIn(32, 256)
+        val margin = max(2 * r, rc) + 2
+        // Keep each strip's working memory to ~24 MB (11 float planes).
+        val stripH = (24_000_000 / (w * 44) - 2 * margin).coerceIn(32, 256)
         val strips = (0 until h step stripH).toList()
         // Small images (the live preview) use several cores; big exports go one strip at a time.
         val parallel = if (w <= 2048) Runtime.getRuntime().availableProcessors().coerceIn(1, 4) else 1
@@ -446,7 +449,7 @@ object ImageEngine {
                 batch.map { y0 ->
                     async(Dispatchers.Default) {
                         ensureActive()
-                        skinStrip(src, px, w, h, y0, min(h, y0 + stripH), margin, r, eps, amount, colourAmt)
+                        skinStrip(src, px, w, h, y0, min(h, y0 + stripH), margin, r, rc, eps, amount, colourAmt)
                     }
                 }.awaitAll()
             }
@@ -455,7 +458,7 @@ object ImageEngine {
 
     private fun skinStrip(
         src: IntArray, px: IntArray, w: Int, h: Int, y0: Int, y1: Int, margin: Int,
-        r: Int, eps: Float, amount: Float, colourAmt: Float,
+        r: Int, rc: Int, eps: Float, amount: Float, colourAmt: Float,
     ) {
         val ys = max(0, y0 - margin)
         val ye = min(h, y1 + margin)
@@ -464,7 +467,7 @@ object ImageEngine {
         val lum = FloatArray(n); val mask = FloatArray(n)
         val cR = FloatArray(n); val cG = FloatArray(n); val cB = FloatArray(n)
         val tmp = FloatArray(n)
-        val p1 = FloatArray(n); val p2 = FloatArray(n); val p3 = FloatArray(n); val p4 = FloatArray(n)
+        val p1 = FloatArray(n); val p2 = FloatArray(n); val p3 = FloatArray(n); val p4 = FloatArray(n); val p5 = FloatArray(n)
         for (i in 0 until n) {
             val c = src[ys * w + i]
             val rr = ((c shr 16) and 255) / 255f
@@ -490,10 +493,16 @@ object ImageEngine {
         }
         boxF(p3, p1, w, sh, r, tmp)                  // p1 = mean a
         boxF(p4, p2, w, sh, r, tmp)                  // p2 = mean b
-        // Even out blotchy colour (redness) under the mask, one channel at a time.
+        // Even out blotchy colour (redness) using skin pixels only (mask-weighted average),
+        // so lips, eyes and clothing never bleed into the skin.
+        boxF(mask, p4, w, sh, rc, tmp)               // p4 = local skin weight
         for (ch in arrayOf(cR, cG, cB)) {
-            boxF(ch, p3, w, sh, r, tmp)
-            for (i in 0 until n) ch[i] += (p3[i] - ch[i]) * colourAmt * mask[i]
+            for (i in 0 until n) p3[i] = ch[i] * mask[i]
+            boxF(p3, p5, w, sh, rc, tmp)
+            for (i in 0 until n) {
+                val wsum = p4[i]
+                if (wsum > 0.05f) ch[i] += (p5[i] / wsum - ch[i]) * colourAmt * mask[i]
+            }
         }
         val from = (y0 - ys) * w
         val to = (y1 - ys) * w
