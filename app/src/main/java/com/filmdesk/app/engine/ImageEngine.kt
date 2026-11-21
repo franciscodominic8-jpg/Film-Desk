@@ -395,8 +395,10 @@ object ImageEngine {
 
     // ------------------------------------------------------------- detail pass
 
-    private fun applyDetail(px: IntArray, w: Int, h: Int, p: EditParams) {
+    private suspend fun applyDetail(px: IntArray, w: Int, h: Int, p: EditParams) {
         val long = max(w, h)
+        // Skin first, so sharpening doesn't put the texture straight back.
+        if (p.smoothSkin > 0) smoothSkin(px, w, h, p.smoothSkin)
         // Sharpness (unsharp mask) and High ISO NR share one small blur.
         val k = (if (p.sharpness >= 0) p.sharpness * 0.3f else p.sharpness * 0.12f) - max(0, p.noiseReduction) * 0.07f
         if (k != 0f) {
@@ -413,13 +415,129 @@ object ImageEngine {
                 px[i] = addDetail(c, blur[i], kc * 4f * l * (1f - l))
             }
         }
-        if (p.smoothSkin > 0) {
-            val blur = boxBlur(px, w, h, max(2, long / 300))
-            val amt = if (p.smoothSkin == 1) 0.4f else 0.7f
-            for (i in px.indices) {
-                val c = px[i]
-                val s = skinMask(c)
-                if (s > 0f) px[i] = lerpColor(c, blur[i], amt * s)
+    }
+
+    // ------------------------------------------------------------ smooth skin
+
+    /**
+     * Skin smoothing like a retouching app:
+     *  - a soft, feathered skin mask (YCbCr skin range, works across skin tones),
+     *  - an edge-preserving guided filter on brightness, so pores and small blemishes
+     *    soften while eyes, lips, brows and hair edges stay sharp,
+     *  - a gentle evening-out of blotchy colour (redness) under the same mask,
+     *  - some fine texture is kept so skin never looks plastic.
+     * Processed in horizontal strips to keep memory low on large exports.
+     */
+    private suspend fun smoothSkin(px: IntArray, w: Int, h: Int, level: Int) {
+        val long = max(w, h)
+        val r = max(2, long / 300)                     // filter radius scales with resolution
+        val eps = if (level == 1) 0.0012f else 0.0030f // edge threshold (higher = smoother)
+        val amount = if (level == 1) 0.6f else 0.88f
+        val colourAmt = if (level == 1) 0.25f else 0.45f
+        val src = px.copyOf()
+        val margin = 2 * r + 2
+        // Keep each strip's working memory to ~24 MB (10 float planes).
+        val stripH = (24_000_000 / (w * 40) - 2 * margin).coerceIn(32, 256)
+        val strips = (0 until h step stripH).toList()
+        // Small images (the live preview) use several cores; big exports go one strip at a time.
+        val parallel = if (w <= 2048) Runtime.getRuntime().availableProcessors().coerceIn(1, 4) else 1
+        coroutineScope {
+            strips.chunked(parallel).forEach { batch ->
+                batch.map { y0 ->
+                    async(Dispatchers.Default) {
+                        ensureActive()
+                        skinStrip(src, px, w, h, y0, min(h, y0 + stripH), margin, r, eps, amount, colourAmt)
+                    }
+                }.awaitAll()
+            }
+        }
+    }
+
+    private fun skinStrip(
+        src: IntArray, px: IntArray, w: Int, h: Int, y0: Int, y1: Int, margin: Int,
+        r: Int, eps: Float, amount: Float, colourAmt: Float,
+    ) {
+        val ys = max(0, y0 - margin)
+        val ye = min(h, y1 + margin)
+        val sh = ye - ys
+        val n = w * sh
+        val lum = FloatArray(n); val mask = FloatArray(n)
+        val cR = FloatArray(n); val cG = FloatArray(n); val cB = FloatArray(n)
+        val tmp = FloatArray(n)
+        val p1 = FloatArray(n); val p2 = FloatArray(n); val p3 = FloatArray(n); val p4 = FloatArray(n)
+        for (i in 0 until n) {
+            val c = src[ys * w + i]
+            val rr = ((c shr 16) and 255) / 255f
+            val gg = ((c shr 8) and 255) / 255f
+            val bb = (c and 255) / 255f
+            val l = 0.299f * rr + 0.587f * gg + 0.114f * bb
+            lum[i] = l
+            mask[i] = skinProbability(rr, gg, bb)
+            cR[i] = rr - l; cG[i] = gg - l; cB[i] = bb - l
+        }
+        // Final mask: skin likelihood, feathered so smoothing fades in and out without edges.
+        boxF(mask, p1, w, sh, r, tmp)
+        for (i in 0 until n) mask[i] = min(mask[i], p1[i] * 1.15f).coerceIn(0f, 1f)
+        // Guided filter (self-guided) on brightness: q = mean(a)·I + mean(b).
+        boxF(lum, p1, w, sh, r, tmp)                 // p1 = mean I
+        for (i in 0 until n) p3[i] = lum[i] * lum[i]
+        boxF(p3, p2, w, sh, r, tmp)                  // p2 = mean I²
+        for (i in 0 until n) {
+            val v = p2[i] - p1[i] * p1[i]
+            val ai = v / (v + eps)
+            p3[i] = ai                               // p3 = a
+            p4[i] = p1[i] - ai * p1[i]               // p4 = b
+        }
+        boxF(p3, p1, w, sh, r, tmp)                  // p1 = mean a
+        boxF(p4, p2, w, sh, r, tmp)                  // p2 = mean b
+        // Even out blotchy colour (redness) under the mask, one channel at a time.
+        for (ch in arrayOf(cR, cG, cB)) {
+            boxF(ch, p3, w, sh, r, tmp)
+            for (i in 0 until n) ch[i] += (p3[i] - ch[i]) * colourAmt * mask[i]
+        }
+        val from = (y0 - ys) * w
+        val to = (y1 - ys) * w
+        for (i in from until to) {
+            val m = mask[i]
+            if (m <= 0.01f) continue
+            val l = lum[i]
+            val nl = l + (p1[i] * l + p2[i] - l) * amount * m
+            px[ys * w + i] = pack(nl + cR[i], nl + cG[i], nl + cB[i])
+        }
+    }
+
+    /** 0..1 skin likelihood from the classic YCbCr skin range, with soft edges. */
+    private fun skinProbability(r: Float, g: Float, b: Float): Float {
+        val y = 255f * (0.299f * r + 0.587f * g + 0.114f * b)
+        val cb = 128f + 255f * (-0.168736f * r - 0.331264f * g + 0.5f * b)
+        val cr = 128f + 255f * (0.5f * r - 0.418688f * g - 0.081312f * b)
+        val pCb = softRange(cb, 77f, 127f, 8f)
+        val pCr = softRange(cr, 133f, 173f, 8f)
+        val pY = smooth(25f, 55f, y) * (1f - smooth(245f, 254f, y))
+        return pCb * pCr * pY
+    }
+
+    private fun softRange(x: Float, lo: Float, hi: Float, feather: Float): Float =
+        smooth(lo - feather, lo + feather, x) * (1f - smooth(hi - feather, hi + feather, x))
+
+    /** Separable box filter on a float plane (edges clamped), written into [dst]. */
+    private fun boxF(src: FloatArray, dst: FloatArray, w: Int, h: Int, r: Int, tmp: FloatArray) {
+        val div = 1f / (2 * r + 1)
+        for (y in 0 until h) {
+            val base = y * w
+            var sum = 0f
+            for (k in -r..r) sum += src[base + k.coerceIn(0, w - 1)]
+            for (x in 0 until w) {
+                tmp[base + x] = sum * div
+                sum += src[base + min(x + r + 1, w - 1)] - src[base + max(x - r, 0)]
+            }
+        }
+        for (x in 0 until w) {
+            var sum = 0f
+            for (k in -r..r) sum += tmp[k.coerceIn(0, h - 1) * w + x]
+            for (y in 0 until h) {
+                dst[y * w + x] = sum * div
+                sum += tmp[min(y + r + 1, h - 1) * w + x] - tmp[max(y - r, 0) * w + x]
             }
         }
     }
@@ -613,18 +731,6 @@ object ImageEngine {
         val g = (((a shr 8) and 255) + (((b shr 8) and 255) - ((a shr 8) and 255)) * t).roundToInt()
         val bl = ((a and 255) + ((b and 255) - (a and 255)) * t).roundToInt()
         return OPAQUE or (r.coerceIn(0, 255) shl 16) or (g.coerceIn(0, 255) shl 8) or bl.coerceIn(0, 255)
-    }
-
-    /** 0..1 likelihood that a pixel is skin (warm, moderately saturated). */
-    private fun skinMask(c: Int): Float {
-        val r = (c shr 16) and 255
-        val g = (c shr 8) and 255
-        val b = c and 255
-        if (!(r > g && g > b) || r < 60) return 0f
-        val sat = (r - b) / r.toFloat()
-        if (sat < 0.1f || sat > 0.65f) return 0f
-        val hue = 60f * (g - b) / (r - b).toFloat()
-        return (1f - abs(hue - 25f) / 20f).coerceIn(0f, 1f)
     }
 
     private fun hashNoise(x: Int, y: Int): Float {
