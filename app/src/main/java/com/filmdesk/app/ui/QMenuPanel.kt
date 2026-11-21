@@ -151,7 +151,7 @@ private fun StepperEditor(s: QSetting.Stepper, vm: EditorViewModel) {
             display = "",
             changed = false,
             steps = (s.steps - 1).coerceAtLeast(0),
-            onChange = { vm.setParams(s.set(vm.params, s.snap(it))) },
+            onChange = { vm.updateParams(s.set(vm.params, s.snap(it))) },
             onDone = vm::commit,
         )
     }

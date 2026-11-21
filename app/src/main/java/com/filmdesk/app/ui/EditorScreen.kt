@@ -287,7 +287,7 @@ private fun FilmPanel(vm: EditorViewModel) {
                 range = 0f..1f,
                 display = "${(p.simStrength * 100).roundToInt()}%",
                 changed = p.simStrength != 1f,
-                onChange = { vm.setParams(vm.params.copy(simStrength = (it * 100).roundToInt() / 100f)) },
+                onChange = { vm.updateParams(vm.params.copy(simStrength = (it * 100).roundToInt() / 100f)) },
                 onDone = vm::commit,
                 onReset = { vm.change(vm.params.copy(simStrength = 1f)) },
             )

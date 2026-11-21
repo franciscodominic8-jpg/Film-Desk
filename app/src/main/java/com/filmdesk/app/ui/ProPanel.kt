@@ -79,7 +79,7 @@ fun ProPanel(vm: EditorViewModel) {
                     range = s.min.toFloat()..s.max.toFloat(),
                     display = if (v > 0 && s.min < 0) "+$v" else v.toString().replace("-", "−"),
                     changed = v != 0,
-                    onChange = { vm.setParams(s.set(vm.params, Math.round(it))) },
+                    onChange = { vm.updateParams(s.set(vm.params, Math.round(it))) },
                     onDone = vm::commit,
                     onReset = { vm.change(s.set(vm.params, 0)) },
                 )

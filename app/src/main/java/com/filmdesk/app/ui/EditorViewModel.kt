@@ -165,7 +165,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
     // ---------------------------------------------------------------- params
 
     /** Live change (e.g. while dragging a slider). Call [commit] when the gesture ends. */
-    fun setParams(p: EditParams) {
+    fun updateParams(p: EditParams) {
         if (p == params) return
         params = p
         requestRender()
@@ -183,7 +183,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Discrete change: apply and record in history. */
     fun change(p: EditParams) {
-        setParams(p)
+        updateParams(p)
         commit()
     }
 
