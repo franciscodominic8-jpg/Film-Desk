@@ -13,6 +13,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.ensureActive
 import kotlin.math.abs
+import kotlin.math.atan2
 import kotlin.math.exp
 import kotlin.math.floor
 import kotlin.math.ln
@@ -20,6 +21,8 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.pow
 import kotlin.math.roundToInt
+import kotlin.math.sqrt
+import kotlin.math.tanh
 
 /** Average linear colour of a photo, used by Auto white balance. */
 class ImageStats(val avgR: Float, val avgG: Float, val avgB: Float) {
@@ -40,6 +43,7 @@ object ImageEngine {
     private const val ENC = 4096
     private val toLinear = FloatArray(256) { srgbToLinear(it / 255f) }
     private val toGamma = FloatArray(ENC + 1) { linearToSrgb(it / ENC.toFloat()) }
+    private val toLinearF = FloatArray(ENC + 1) { srgbToLinear(it / ENC.toFloat()) }
     private val HUE_CENTERS = floatArrayOf(0f, 30f, 60f, 120f, 180f, 225f, 275f, 320f)
 
     // ------------------------------------------------------------------ public
@@ -124,8 +128,9 @@ object ImageEngine {
         val norm: Float
         val hl: Float
         val sh: Float
-        val satMul = (1f + 0.1f * p.color) * (1f + p.saturation / 100f)
-        val vib = p.vibrance / 100f * 0.8f
+        /** Combined chroma multiplier from Fuji "Color" (−4..+4) and Pro Saturation (−100..+100). */
+        val satMul = ((1f + 0.08f * p.color) * (1f + p.saturation / 100f)).coerceAtLeast(0f)
+        val vib = p.vibrance / 100f
         val cc = when (p.colorChrome) { 1 -> 0.14f; 2 -> 0.26f; else -> 0f }
         val ccb = when (p.colorChromeBlue) { 1 -> 0.12f; 2 -> 0.22f; else -> 0f }
         val proContrast = p.contrast / 100f * 0.3f
@@ -218,6 +223,8 @@ object ImageEngine {
         val st = sim.shadowTint
         val ht = sim.highlightTint
         val hsv = FloatArray(3)
+        val lab = FloatArray(3)
+        val rgbTmp = FloatArray(3)
         for (y in y0 until y1) {
             var i = y * w
             val end = i + w
@@ -288,17 +295,37 @@ object ImageEngine {
                     r = sCurve(r, q.proContrast); g = sCurve(g, q.proContrast); b = sCurve(b, q.proContrast)
                 }
 
-                // 4. saturation / vibrance
-                var smul = q.satMul
-                if (q.vib != 0f) {
-                    val cs = (max3(r, g, b) - min3(r, g, b)).coerceIn(0f, 1f)
-                    smul *= 1f + q.vib * (1f - cs)
-                }
-                if (smul != 1f) {
-                    val l2 = luma(r, g, b)
-                    r = l2 + (r - l2) * smul
-                    g = l2 + (g - l2) * smul
-                    b = l2 + (b - l2) * smul
+                // 4. Saturation / Vibrance / Fuji Color — scales chroma in OKLab, so brightness
+                //    and hue stay put, and strong colours roll off smoothly instead of clipping.
+                if (q.satMul != 1f || q.vib != 0f) {
+                    r = r.coerceIn(0f, 1f); g = g.coerceIn(0f, 1f); b = b.coerceIn(0f, 1f)
+                    toOklab(lin(r), lin(g), lin(b), lab)
+                    val ll = lab[0]
+                    val la = lab[1]
+                    val lb = lab[2]
+                    val c = sqrt(la * la + lb * lb)
+                    if (c > 1e-5f) {
+                        var f = q.satMul
+                        if (q.vib != 0f) {
+                            val sat = (c / 0.22f).coerceIn(0f, 1f)
+                            if (q.vib > 0f) {
+                                // Boost muted colours most, leave saturated ones and skin mostly alone.
+                                var hue = Math.toDegrees(atan2(lb, la).toDouble()).toFloat()
+                                if (hue < 0f) hue += 360f
+                                val skin = (1f - abs(hue - 55f) / 30f).coerceIn(0f, 1f)
+                                f *= 1f + q.vib * (1f - sat) * (1f - sat) * (1f - 0.6f * skin)
+                            } else {
+                                // Negative vibrance tones down the loudest colours first.
+                                f *= 1f + q.vib * (0.2f + 0.45f * sat)
+                            }
+                        }
+                        f = f.coerceAtLeast(0f)
+                        var ct = c * f
+                        if (ct > c) ct = softGamut(ll, la / c, lb / c, c, ct, rgbTmp)
+                        val k = ct / c
+                        fromOklab(ll, la * k, lb * k, rgbTmp)
+                        r = enc(rgbTmp[0]); g = enc(rgbTmp[1]); b = enc(rgbTmp[2])
+                    }
                 }
 
                 // 5. Color Chrome effect / FX Blue: denser tone in saturated colours
@@ -452,6 +479,59 @@ object ImageEngine {
                 px[i] = pack(r, g, b)
             }
         }
+    }
+
+    // ------------------------------------------------------------ OKLab colour
+
+    private fun lin(v: Float): Float = toLinearF[(v.coerceIn(0f, 1f) * ENC).toInt()]
+
+    /** Linear sRGB → OKLab (Björn Ottosson). */
+    private fun toOklab(r: Float, g: Float, b: Float, out: FloatArray) {
+        val l = Math.cbrt((0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b))
+        val m = Math.cbrt((0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b))
+        val s = Math.cbrt((0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b))
+        out[0] = (0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s).toFloat()
+        out[1] = (1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s).toFloat()
+        out[2] = (0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s).toFloat()
+    }
+
+    /** OKLab → linear sRGB (may be outside 0..1 if out of gamut). */
+    private fun fromOklab(lL: Float, a: Float, b: Float, out: FloatArray) {
+        val l_ = lL + 0.3963377774f * a + 0.2158037573f * b
+        val m_ = lL - 0.1055613458f * a - 0.0638541728f * b
+        val s_ = lL - 0.0894841775f * a - 1.2914855480f * b
+        val l = l_ * l_ * l_
+        val m = m_ * m_ * m_
+        val s = s_ * s_ * s_
+        out[0] = 4.0767416621f * l - 3.3077115913f * m + 0.2309699292f * s
+        out[1] = -1.2684380046f * l + 2.6097574011f * m - 0.3413193965f * s
+        out[2] = -0.0041960863f * l - 0.5110127212f * m + 1.5003456678f * s
+    }
+
+    private fun inGamut(lL: Float, ua: Float, ub: Float, c: Float, tmp: FloatArray): Boolean {
+        fromOklab(lL, ua * c, ub * c, tmp)
+        val e = 1e-4f
+        return tmp[0] >= -e && tmp[0] <= 1f + e && tmp[1] >= -e && tmp[1] <= 1f + e && tmp[2] >= -e && tmp[2] <= 1f + e
+    }
+
+    /**
+     * Raises chroma from [c] towards [target] along the same hue and lightness, easing into
+     * the edge of the sRGB gamut (soft knee) so saturated areas keep their detail.
+     */
+    private fun softGamut(lL: Float, ua: Float, ub: Float, c: Float, target: Float, tmp: FloatArray): Float {
+        // Fast path: comfortably inside the gamut.
+        if (inGamut(lL, ua, ub, target * 1.35f, tmp)) return target
+        var lo = c
+        var hi = max(target * 1.35f, c + 1e-4f)
+        repeat(12) {
+            val mid = (lo + hi) * 0.5f
+            if (inGamut(lL, ua, ub, mid, tmp)) lo = mid else hi = mid
+        }
+        val cMax = lo
+        val knee = max(c, 0.72f * cMax)
+        if (target <= knee || cMax - knee < 1e-5f) return min(target, cMax)
+        val span = cMax - knee
+        return knee + span * tanh((target - knee) / span)
     }
 
     // ----------------------------------------------------------------- helpers
