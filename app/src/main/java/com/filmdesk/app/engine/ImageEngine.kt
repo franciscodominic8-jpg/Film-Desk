@@ -1,0 +1,598 @@
+package com.filmdesk.app.engine
+
+import android.graphics.Bitmap
+import android.graphics.Matrix
+import com.filmdesk.app.model.ASPECTS
+import com.filmdesk.app.model.EditParams
+import com.filmdesk.app.model.FILM_SIMS
+import com.filmdesk.app.model.WB_PRESETS
+import com.filmdesk.app.model.WbType
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.ensureActive
+import kotlin.math.abs
+import kotlin.math.exp
+import kotlin.math.floor
+import kotlin.math.ln
+import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.pow
+import kotlin.math.roundToInt
+
+/** Average linear colour of a photo, used by Auto white balance. */
+class ImageStats(val avgR: Float, val avgG: Float, val avgB: Float) {
+    companion object {
+        val NEUTRAL = ImageStats(0.18f, 0.18f, 0.18f)
+    }
+}
+
+/**
+ * CPU image pipeline. Pure Kotlin, so it behaves the same on every Android version
+ * and every chip (no GPU / RenderScript dependency). Work is split across cores.
+ *
+ * Order: geometry → linear WB + exposure → dynamic range → film simulation →
+ * Fuji tone (highlight/shadow) → pro tone → colour (saturation, Color Chrome, HSL)
+ * → detail (sharpness, NR, clarity, smooth skin) → grain + vignette.
+ */
+object ImageEngine {
+    private const val ENC = 4096
+    private val toLinear = FloatArray(256) { srgbToLinear(it / 255f) }
+    private val toGamma = FloatArray(ENC + 1) { linearToSrgb(it / ENC.toFloat()) }
+    private val HUE_CENTERS = floatArrayOf(0f, 30f, 60f, 120f, 180f, 225f, 275f, 320f)
+
+    // ------------------------------------------------------------------ public
+
+    fun computeStats(bmp: Bitmap): ImageStats {
+        val w = bmp.width
+        val h = bmp.height
+        val step = max(1, max(w, h) / 200)
+        val row = IntArray(w)
+        var r = 0.0; var g = 0.0; var b = 0.0; var n = 0
+        var y = 0
+        while (y < h) {
+            bmp.getPixels(row, 0, w, 0, y, w, 1)
+            var x = 0
+            while (x < w) {
+                val c = row[x]
+                r += toLinear[(c shr 16) and 255]
+                g += toLinear[(c shr 8) and 255]
+                b += toLinear[c and 255]
+                n++
+                x += step
+            }
+            y += step
+        }
+        if (n == 0) return ImageStats.NEUTRAL
+        return ImageStats(
+            (r / n).toFloat().coerceAtLeast(1e-4f),
+            (g / n).toFloat().coerceAtLeast(1e-4f),
+            (b / n).toFloat().coerceAtLeast(1e-4f),
+        )
+    }
+
+    fun applyGeometry(src: Bitmap, p: EditParams): Bitmap {
+        var bmp = src
+        if (p.rotation != 0 || p.flipH) {
+            val m = Matrix()
+            if (p.flipH) m.postScale(-1f, 1f)
+            if (p.rotation != 0) m.postRotate(p.rotation.toFloat())
+            bmp = Bitmap.createBitmap(src, 0, 0, src.width, src.height, m, true)
+        }
+        val ratio = ASPECTS[p.aspect.coerceIn(0, ASPECTS.lastIndex)].ratio
+        if (ratio > 0f) {
+            val w = bmp.width
+            val h = bmp.height
+            var cw = w
+            var ch = h
+            if (w.toFloat() / h > ratio) cw = (h * ratio).roundToInt() else ch = (w / ratio).roundToInt()
+            cw = cw.coerceIn(1, w)
+            ch = ch.coerceIn(1, h)
+            if (cw != w || ch != h) bmp = Bitmap.createBitmap(bmp, (w - cw) / 2, (h - ch) / 2, cw, ch)
+        }
+        return bmp
+    }
+
+    /** Renders [source] with [p]. Safe to call from any coroutine; cancellable between stages. */
+    suspend fun render(source: Bitmap, p: EditParams, stats: ImageStats, detail: Boolean = true): Bitmap {
+        val bmp = applyGeometry(source, p)
+        val w = bmp.width
+        val h = bmp.height
+        val px = IntArray(w * h)
+        bmp.getPixels(px, 0, w, 0, 0, w, h)
+        val prep = Prepared(p, stats)
+        parallelRows(h) { y0, y1 -> colorRows(px, w, y0, y1, prep) }
+        if (detail) applyDetail(px, w, h, p)
+        if (p.grain > 0 || p.vignette != 0) parallelRows(h) { y0, y1 -> finishRows(px, w, h, y0, y1, p) }
+        val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        out.setPixels(px, 0, w, 0, 0, w, h)
+        return out
+    }
+
+    // ------------------------------------------------------------- preparation
+
+    private class Prepared(p: EditParams, stats: ImageStats) {
+        val sim = FILM_SIMS[p.sim.coerceIn(0, FILM_SIMS.lastIndex)]
+        val strength = p.simStrength.coerceIn(0f, 1f)
+        val gR: Float
+        val gG: Float
+        val gB: Float
+        val dr: Int
+        val knee: Float
+        val a: Float
+        val norm: Float
+        val hl: Float
+        val sh: Float
+        val satMul = (1f + 0.1f * p.color) * (1f + p.saturation / 100f)
+        val vib = p.vibrance / 100f * 0.8f
+        val cc = when (p.colorChrome) { 1 -> 0.14f; 2 -> 0.26f; else -> 0f }
+        val ccb = when (p.colorChromeBlue) { 1 -> 0.12f; 2 -> 0.22f; else -> 0f }
+        val proContrast = p.contrast / 100f * 0.3f
+        val proHi = p.highlights / 100f
+        val proSh = p.shadows / 100f
+        val proWh = p.whites / 100f
+        val proBl = p.blacks / 100f
+        val fade = p.fade / 100f * 0.15f
+        val wc = p.monoWC.toFloat()
+        val mg = p.monoMG.toFloat()
+        val hslOn = p.hslHue.any { it != 0 } || p.hslSat.any { it != 0 } || p.hslLum.any { it != 0 }
+        val hueShift = FloatArray(8) { p.hslHue.getOrElse(it) { 0 } * 0.3f }
+        val satShift = FloatArray(8) { p.hslSat.getOrElse(it) { 0 } / 100f }
+        val lumShift = FloatArray(8) { p.hslLum.getOrElse(it) { 0 } / 100f * 0.5f }
+
+        init {
+            val wb = whiteBalanceGains(p, stats)
+            val ev = 2f.pow(p.exposureThirds / 3f)
+            val t = p.temp / 100f
+            val tn = p.tint / 100f
+            gR = wb[0] * ev * (1f + 0.3f * t) * (1f + 0.025f * p.wbShiftR)
+            gG = wb[1] * ev * (1f - 0.2f * tn)
+            gB = wb[2] * ev * (1f - 0.3f * t) * (1f + 0.025f * p.wbShiftB)
+
+            var d = p.dynamicRange.coerceIn(0, 2)
+            var h = p.highlight
+            var s = p.shadow
+            when (p.dRangePriority) {
+                1, 3 -> { d = max(d, 1); h = -1f; s = -1f }
+                2 -> { d = 2; h = -2f; s = -2f }
+            }
+            dr = d
+            hl = h
+            sh = s
+            knee = when (d) { 1 -> 0.75f; 2 -> 0.6f; else -> 1f }
+            if (d > 0) {
+                val range = 1f + d * 0.5f
+                a = 1f / (1f - knee)
+                norm = 1f - exp(-a * (range - knee))
+            } else {
+                a = 1f
+                norm = 1f
+            }
+        }
+    }
+
+    private fun whiteBalanceGains(p: EditParams, s: ImageStats): FloatArray {
+        val preset = WB_PRESETS[p.wb.coerceIn(0, WB_PRESETS.lastIndex)]
+        val g = when (preset.type) {
+            WbType.AS_SHOT -> floatArrayOf(1f, 1f, 1f)
+            WbType.AUTO -> floatArrayOf(autoBlend(s.avgG / s.avgR), 1f, autoBlend(s.avgG / s.avgB))
+            WbType.KELVIN -> kelvinGains(preset.kelvin)
+            WbType.CUSTOM -> kelvinGains(p.kelvin)
+            WbType.UNDERWATER -> floatArrayOf(1.45f, 1f, 0.8f)
+        }
+        g[1] *= preset.green
+        return g
+    }
+
+    private fun autoBlend(x: Float) = (1f + (x - 1f) * 0.75f).coerceIn(0.5f, 2f)
+
+    /** Gains that re-balance a photo (assumed shot at ~5500K) as if the camera were set to [k]. */
+    private fun kelvinGains(k: Int): FloatArray {
+        val ref = kelvinRgb(5500)
+        val t = kelvinRgb(k)
+        val r = ref[0] / t[0]
+        val g = ref[1] / t[1]
+        val b = ref[2] / t[2]
+        return floatArrayOf((r / g).coerceIn(0.3f, 3f), 1f, (b / g).coerceIn(0.3f, 3f))
+    }
+
+    private fun kelvinRgb(k: Int): FloatArray {
+        val t = k.coerceIn(1000, 40000) / 100.0
+        val r = if (t <= 66) 255.0 else 329.698727446 * (t - 60).pow(-0.1332047592)
+        val g = if (t <= 66) 99.4708025861 * ln(t) - 161.1195681661 else 288.1221695283 * (t - 60).pow(-0.0755148492)
+        val b = if (t >= 66) 255.0 else if (t <= 19) 0.0 else 138.5177312231 * ln(t - 10) - 305.0447927307
+        return floatArrayOf(
+            r.coerceIn(1.0, 255.0).toFloat(),
+            g.coerceIn(1.0, 255.0).toFloat(),
+            b.coerceIn(1.0, 255.0).toFloat(),
+        )
+    }
+
+    // -------------------------------------------------------------- colour pass
+
+    private fun colorRows(px: IntArray, w: Int, y0: Int, y1: Int, q: Prepared) {
+        val sim = q.sim
+        val m = sim.matrix
+        val mono = sim.mono
+        val st = sim.shadowTint
+        val ht = sim.highlightTint
+        val hsv = FloatArray(3)
+        for (y in y0 until y1) {
+            var i = y * w
+            val end = i + w
+            while (i < end) {
+                val c = px[i]
+                // 1. linear light, white balance, exposure, dynamic range, back to gamma
+                var r = enc(shoulder(toLinear[(c shr 16) and 255] * q.gR, q))
+                var g = enc(shoulder(toLinear[(c shr 8) and 255] * q.gG, q))
+                var b = enc(shoulder(toLinear[c and 255] * q.gB, q))
+
+                // 2. film simulation
+                var sr = r
+                var sg = g
+                var sb = b
+                if (m != null) {
+                    val nr = m[0] * sr + m[1] * sg + m[2] * sb
+                    val ng = m[3] * sr + m[4] * sg + m[5] * sb
+                    val nb = m[6] * sr + m[7] * sg + m[8] * sb
+                    sr = nr; sg = ng; sb = nb
+                }
+                if (mono != null) {
+                    val l = mono[0] * sr + mono[1] * sg + mono[2] * sb
+                    sr = l; sg = l; sb = l
+                } else if (sim.saturation != 1f) {
+                    val l = luma(sr, sg, sb)
+                    sr = l + (sr - l) * sim.saturation
+                    sg = l + (sg - l) * sim.saturation
+                    sb = l + (sb - l) * sim.saturation
+                }
+                if (sim.contrast != 0f) {
+                    sr = sCurve(sr, sim.contrast); sg = sCurve(sg, sim.contrast); sb = sCurve(sb, sim.contrast)
+                }
+                if (sim.toe > 0f) {
+                    sr = sim.toe + sr * (1f - sim.toe)
+                    sg = sim.toe + sg * (1f - sim.toe)
+                    sb = sim.toe + sb * (1f - sim.toe)
+                }
+                val tl = luma(sr, sg, sb).coerceIn(0f, 1f)
+                val sw = (1f - tl) * (1f - tl) * 2f
+                val hw = tl * tl * 2f
+                sr += st[0] * sw + ht[0] * hw
+                sg += st[1] * sw + ht[1] * hw
+                sb += st[2] * sw + ht[2] * hw
+                if (sim.sepia) {
+                    val k = 4f * tl * (1f - tl) + 0.25f
+                    sr += 0.06f * k; sg += 0.015f * k; sb -= 0.06f * k
+                }
+                if (mono != null && (q.wc != 0f || q.mg != 0f)) {
+                    sr += q.wc * 0.006f + q.mg * 0.004f
+                    sg -= q.mg * 0.006f
+                    sb += -q.wc * 0.006f + q.mg * 0.004f
+                }
+                r += (sr - r) * q.strength
+                g += (sg - g) * q.strength
+                b += (sb - b) * q.strength
+
+                // 3. tone: Fuji Highlight / Shadow + pro Highlights/Shadows/Whites/Blacks
+                val lum = luma(r, g, b).coerceIn(0f, 1f)
+                var dL = 0f
+                if (q.hl != 0f) dL += q.hl * 0.045f * smooth(0.45f, 1f, lum)
+                if (q.sh != 0f) dL -= q.sh * 0.045f * (1f - smooth(0f, 0.55f, lum))
+                if (q.proHi != 0f) dL += q.proHi * 0.22f * smooth(0.45f, 1f, lum)
+                if (q.proSh != 0f) dL += q.proSh * 0.22f * (1f - smooth(0f, 0.55f, lum))
+                if (q.proWh != 0f) dL += q.proWh * 0.15f * smooth(0.7f, 1f, lum)
+                if (q.proBl != 0f) dL += q.proBl * 0.12f * (1f - smooth(0f, 0.3f, lum))
+                r += dL; g += dL; b += dL
+                if (q.proContrast != 0f) {
+                    r = sCurve(r, q.proContrast); g = sCurve(g, q.proContrast); b = sCurve(b, q.proContrast)
+                }
+
+                // 4. saturation / vibrance
+                var smul = q.satMul
+                if (q.vib != 0f) {
+                    val cs = (max3(r, g, b) - min3(r, g, b)).coerceIn(0f, 1f)
+                    smul *= 1f + q.vib * (1f - cs)
+                }
+                if (smul != 1f) {
+                    val l2 = luma(r, g, b)
+                    r = l2 + (r - l2) * smul
+                    g = l2 + (g - l2) * smul
+                    b = l2 + (b - l2) * smul
+                }
+
+                // 5. Color Chrome effect / FX Blue: denser tone in saturated colours
+                if (q.cc > 0f || q.ccb > 0f) {
+                    val mx = max3(r, g, b)
+                    val cs = (mx - min3(r, g, b)).coerceIn(0f, 1f)
+                    if (q.cc > 0f) {
+                        val f = 1f - q.cc * cs * cs * (0.5f + 0.5f * mx.coerceIn(0f, 1f))
+                        r *= f; g *= f; b *= f
+                    }
+                    if (q.ccb > 0f) {
+                        val bl = ((b - max(r, g)) * 3f).coerceIn(0f, 1f)
+                        if (bl > 0f) {
+                            val f = 1f - q.ccb * bl
+                            r *= f; g *= f; b *= 1f - q.ccb * bl * 0.55f
+                        }
+                    }
+                }
+
+                // 6. HSL bands
+                if (q.hslOn) {
+                    rgbToHsv(r.coerceIn(0f, 1f), g.coerceIn(0f, 1f), b.coerceIn(0f, 1f), hsv)
+                    val hh = hsv[0]
+                    var dh = 0f; var ds = 0f; var dl = 0f
+                    for (k in 0 until 8) {
+                        var d = abs(hh - HUE_CENTERS[k])
+                        if (d > 180f) d = 360f - d
+                        val wgt = 1f - d / 45f
+                        if (wgt > 0f) {
+                            dh += wgt * q.hueShift[k]; ds += wgt * q.satShift[k]; dl += wgt * q.lumShift[k]
+                        }
+                    }
+                    if (dh != 0f || ds != 0f || dl != 0f) {
+                        var nh = hh + dh
+                        if (nh < 0f) nh += 360f
+                        if (nh >= 360f) nh -= 360f
+                        val ns = (hsv[1] * (1f + ds)).coerceIn(0f, 1f)
+                        val nv = (hsv[2] * (1f + dl * hsv[1])).coerceIn(0f, 1f)
+                        hsvToRgb(nh, ns, nv, hsv)
+                        r = hsv[0]; g = hsv[1]; b = hsv[2]
+                    }
+                }
+
+                // 7. fade (lifted blacks)
+                if (q.fade > 0f) {
+                    r = q.fade + r * (1f - q.fade)
+                    g = q.fade + g * (1f - q.fade)
+                    b = q.fade + b * (1f - q.fade)
+                }
+                px[i] = pack(r, g, b)
+                i++
+            }
+        }
+    }
+
+    // ------------------------------------------------------------- detail pass
+
+    private fun applyDetail(px: IntArray, w: Int, h: Int, p: EditParams) {
+        val long = max(w, h)
+        // Sharpness (unsharp mask) and High ISO NR share one small blur.
+        val k = (if (p.sharpness >= 0) p.sharpness * 0.3f else p.sharpness * 0.12f) - max(0, p.noiseReduction) * 0.07f
+        if (k != 0f) {
+            val blur = boxBlur(px, w, h, max(1, long / 1800))
+            for (i in px.indices) px[i] = addDetail(px[i], blur[i], k)
+        }
+        if (p.clarity != 0) {
+            val r = max(2, long / 90)
+            val blur = boxBlur(boxBlur(px, w, h, r), w, h, r)
+            val kc = p.clarity * 0.09f
+            for (i in px.indices) {
+                val c = px[i]
+                val l = lumaOf(c)
+                px[i] = addDetail(c, blur[i], kc * 4f * l * (1f - l))
+            }
+        }
+        if (p.smoothSkin > 0) {
+            val blur = boxBlur(px, w, h, max(2, long / 300))
+            val amt = if (p.smoothSkin == 1) 0.4f else 0.7f
+            for (i in px.indices) {
+                val c = px[i]
+                val s = skinMask(c)
+                if (s > 0f) px[i] = lerpColor(c, blur[i], amt * s)
+            }
+        }
+    }
+
+    /** Separable box blur on packed RGB. Returns a new array. */
+    fun boxBlur(src: IntArray, w: Int, h: Int, r: Int): IntArray {
+        val tmp = IntArray(src.size)
+        val dst = IntArray(src.size)
+        blurLines(src, tmp, w, h, r, true)
+        blurLines(tmp, dst, w, h, r, false)
+        return dst
+    }
+
+    private fun blurLines(src: IntArray, dst: IntArray, w: Int, h: Int, r: Int, horizontal: Boolean) {
+        val lines = if (horizontal) h else w
+        val len = if (horizontal) w else h
+        val stride = if (horizontal) 1 else w
+        val div = 2 * r + 1
+        for (line in 0 until lines) {
+            val base = if (horizontal) line * w else line
+            var sr = 0; var sg = 0; var sb = 0
+            for (k in -r..r) {
+                val c = src[base + k.coerceIn(0, len - 1) * stride]
+                sr += (c shr 16) and 255; sg += (c shr 8) and 255; sb += c and 255
+            }
+            for (j in 0 until len) {
+                dst[base + j * stride] = OPAQUE or ((sr / div) shl 16) or ((sg / div) shl 8) or (sb / div)
+                val add = src[base + min(j + r + 1, len - 1) * stride]
+                val sub = src[base + max(j - r, 0) * stride]
+                sr += ((add shr 16) and 255) - ((sub shr 16) and 255)
+                sg += ((add shr 8) and 255) - ((sub shr 8) and 255)
+                sb += (add and 255) - (sub and 255)
+            }
+        }
+    }
+
+    // ---------------------------------------------------- grain + vignette pass
+
+    private fun finishRows(px: IntArray, w: Int, h: Int, y0: Int, y1: Int, p: EditParams) {
+        val long = max(w, h).toFloat()
+        val amp = when (p.grain) { 1, 2 -> 0.035f; 3, 4 -> 0.07f; else -> 0f }
+        val large = p.grain == 2 || p.grain == 4
+        // Grain size scales with resolution so preview and export look alike.
+        val cell = long / 2400f * (if (large) 2.4f else 1.2f)
+        val freq = 1f / max(cell, 1f)
+        val v = p.vignette / 100f
+        val cx = w / 2f
+        val cy = h / 2f
+        for (y in y0 until y1) {
+            val dy = (y - cy) / cy
+            for (x in 0 until w) {
+                val i = y * w + x
+                val c = px[i]
+                var r = ((c shr 16) and 255) / 255f
+                var g = ((c shr 8) and 255) / 255f
+                var b = (c and 255) / 255f
+                if (v != 0f) {
+                    val dx = (x - cx) / cx
+                    val d2 = (dx * dx + dy * dy) * 0.5f
+                    val vm = 1f + v * 0.8f * smooth(0.1f, 1f, d2)
+                    r *= vm; g *= vm; b *= vm
+                }
+                if (amp > 0f) {
+                    val l = luma(r, g, b).coerceIn(0f, 1f)
+                    val n = if (cell <= 1f) hashNoise(x, y) else valueNoise(x * freq, y * freq)
+                    val d = n * amp * (0.35f + 2.6f * l * (1f - l))
+                    r += d; g += d; b += d
+                }
+                px[i] = pack(r, g, b)
+            }
+        }
+    }
+
+    // ----------------------------------------------------------------- helpers
+
+    private suspend fun parallelRows(h: Int, block: (Int, Int) -> Unit) {
+        coroutineScope {
+            val n = Runtime.getRuntime().availableProcessors().coerceIn(1, 8)
+            val chunk = (h + n - 1) / n
+            (0 until n).map { idx ->
+                async(Dispatchers.Default) {
+                    ensureActive()
+                    val y0 = idx * chunk
+                    val y1 = min(h, y0 + chunk)
+                    if (y0 < y1) block(y0, y1)
+                }
+            }.awaitAll()
+        }
+    }
+
+    private const val OPAQUE = -0x1000000 // 0xFF000000
+
+    private fun shoulder(x: Float, q: Prepared): Float {
+        if (q.dr == 0 || x <= q.knee) return x
+        return q.knee + (1f - q.knee) * min(1f, (1f - exp(-q.a * (x - q.knee))) / q.norm)
+    }
+
+    private fun enc(v: Float): Float = toGamma[(v.coerceIn(0f, 1f) * ENC).toInt()]
+
+    private fun pack(r: Float, g: Float, b: Float): Int {
+        val ri = (r.coerceIn(0f, 1f) * 255f + 0.5f).toInt()
+        val gi = (g.coerceIn(0f, 1f) * 255f + 0.5f).toInt()
+        val bi = (b.coerceIn(0f, 1f) * 255f + 0.5f).toInt()
+        return OPAQUE or (ri shl 16) or (gi shl 8) or bi
+    }
+
+    private fun luma(r: Float, g: Float, b: Float) = 0.2126f * r + 0.7152f * g + 0.0722f * b
+
+    private fun lumaOf(c: Int) =
+        (0.2126f * ((c shr 16) and 255) + 0.7152f * ((c shr 8) and 255) + 0.0722f * (c and 255)) / 255f
+
+    private fun max3(a: Float, b: Float, c: Float) = max(a, max(b, c))
+    private fun min3(a: Float, b: Float, c: Float) = min(a, min(b, c))
+
+    private fun smooth(e0: Float, e1: Float, x: Float): Float {
+        val t = ((x - e0) / (e1 - e0)).coerceIn(0f, 1f)
+        return t * t * (3f - 2f * t)
+    }
+
+    /** Gentle S-curve; k > 0 adds contrast, k < 0 flattens. */
+    private fun sCurve(x: Float, k: Float): Float {
+        val c = x.coerceIn(0f, 1f)
+        return c + k * (c - 0.5f) * 4f * c * (1f - c)
+    }
+
+    private fun addDetail(c: Int, blur: Int, k: Float): Int {
+        val r = (c shr 16) and 255
+        val g = (c shr 8) and 255
+        val b = c and 255
+        val nr = (r + k * (r - ((blur shr 16) and 255))).roundToInt().coerceIn(0, 255)
+        val ng = (g + k * (g - ((blur shr 8) and 255))).roundToInt().coerceIn(0, 255)
+        val nb = (b + k * (b - (blur and 255))).roundToInt().coerceIn(0, 255)
+        return OPAQUE or (nr shl 16) or (ng shl 8) or nb
+    }
+
+    private fun lerpColor(a: Int, b: Int, t: Float): Int {
+        val r = (((a shr 16) and 255) + (((b shr 16) and 255) - ((a shr 16) and 255)) * t).roundToInt()
+        val g = (((a shr 8) and 255) + (((b shr 8) and 255) - ((a shr 8) and 255)) * t).roundToInt()
+        val bl = ((a and 255) + ((b and 255) - (a and 255)) * t).roundToInt()
+        return OPAQUE or (r.coerceIn(0, 255) shl 16) or (g.coerceIn(0, 255) shl 8) or bl.coerceIn(0, 255)
+    }
+
+    /** 0..1 likelihood that a pixel is skin (warm, moderately saturated). */
+    private fun skinMask(c: Int): Float {
+        val r = (c shr 16) and 255
+        val g = (c shr 8) and 255
+        val b = c and 255
+        if (!(r > g && g > b) || r < 60) return 0f
+        val sat = (r - b) / r.toFloat()
+        if (sat < 0.1f || sat > 0.65f) return 0f
+        val hue = 60f * (g - b) / (r - b).toFloat()
+        return (1f - abs(hue - 25f) / 20f).coerceIn(0f, 1f)
+    }
+
+    private fun hashNoise(x: Int, y: Int): Float {
+        var h = x * 374761393 + y * 668265263
+        h = (h xor (h ushr 13)) * 1274126177
+        h = h xor (h ushr 16)
+        return (h and 0xFFFF) / 32767.5f - 1f
+    }
+
+    private fun valueNoise(x: Float, y: Float): Float {
+        val xi = floor(x).toInt()
+        val yi = floor(y).toInt()
+        val fx = x - xi
+        val fy = y - yi
+        val u = fx * fx * (3f - 2f * fx)
+        val v = fy * fy * (3f - 2f * fy)
+        val a = hashNoise(xi, yi)
+        val b = hashNoise(xi + 1, yi)
+        val c = hashNoise(xi, yi + 1)
+        val d = hashNoise(xi + 1, yi + 1)
+        val top = a + (b - a) * u
+        val bottom = c + (d - c) * u
+        return ((top + (bottom - top) * v) * 1.6f).coerceIn(-1f, 1f)
+    }
+
+    private fun rgbToHsv(r: Float, g: Float, b: Float, out: FloatArray) {
+        val mx = max3(r, g, b)
+        val mn = min3(r, g, b)
+        val d = mx - mn
+        var h = when {
+            d == 0f -> 0f
+            mx == r -> 60f * (((g - b) / d) % 6f)
+            mx == g -> 60f * ((b - r) / d + 2f)
+            else -> 60f * ((r - g) / d + 4f)
+        }
+        if (h < 0f) h += 360f
+        out[0] = h
+        out[1] = if (mx == 0f) 0f else d / mx
+        out[2] = mx
+    }
+
+    private fun hsvToRgb(h: Float, s: Float, v: Float, out: FloatArray) {
+        val c = v * s
+        val hp = h / 60f
+        val x = c * (1f - abs(hp % 2f - 1f))
+        val m = v - c
+        val (r, g, b) = when (hp.toInt()) {
+            0 -> Triple(c, x, 0f)
+            1 -> Triple(x, c, 0f)
+            2 -> Triple(0f, c, x)
+            3 -> Triple(0f, x, c)
+            4 -> Triple(x, 0f, c)
+            else -> Triple(c, 0f, x)
+        }
+        out[0] = r + m; out[1] = g + m; out[2] = b + m
+    }
+}
+
+private fun srgbToLinear(v: Float): Float =
+    if (v <= 0.04045f) v / 12.92f else ((v + 0.055f) / 1.055f).toDouble().pow(2.4).toFloat()
+
+private fun linearToSrgb(v: Float): Float =
+    if (v <= 0.0031308f) v * 12.92f else (1.055 * v.toDouble().pow(1.0 / 2.4) - 0.055).toFloat()

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="fd_bg">#FF0B0B0C</color>
+    <style name="Theme.FilmDesk" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/fd_bg</item>
+        <item name="android:colorBackground">@color/fd_bg</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+</resources>
