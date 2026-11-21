@@ -128,8 +128,10 @@ object ImageEngine {
         val norm: Float
         val hl: Float
         val sh: Float
-        /** Combined chroma multiplier from Fuji "Color" (−4..+4) and Pro Saturation (−100..+100). */
-        val satMul = ((1f + 0.08f * p.color) * (1f + p.saturation / 100f)).coerceAtLeast(0f)
+        /** Chroma multiplier from the Fuji Q-menu "Color" setting (−4..+4). */
+        val colorMul = 1f + 0.08f * p.color
+        /** Pro Saturation, −1..+1: plus works like vibrance, minus fades to black & white. */
+        val proSat = p.saturation / 100f
         val vib = p.vibrance / 100f
         val cc = when (p.colorChrome) { 1 -> 0.14f; 2 -> 0.26f; else -> 0f }
         val ccb = when (p.colorChromeBlue) { 1 -> 0.12f; 2 -> 0.22f; else -> 0f }
@@ -297,7 +299,7 @@ object ImageEngine {
 
                 // 4. Saturation / Vibrance / Fuji Color — scales chroma in OKLab, so brightness
                 //    and hue stay put, and strong colours roll off smoothly instead of clipping.
-                if (q.satMul != 1f || q.vib != 0f) {
+                if (q.colorMul != 1f || q.proSat != 0f || q.vib != 0f) {
                     r = r.coerceIn(0f, 1f); g = g.coerceIn(0f, 1f); b = b.coerceIn(0f, 1f)
                     toOklab(lin(r), lin(g), lin(b), lab)
                     val ll = lab[0]
@@ -305,14 +307,24 @@ object ImageEngine {
                     val lb = lab[2]
                     val c = sqrt(la * la + lb * lb)
                     if (c > 1e-5f) {
-                        var f = q.satMul
+                        var f = q.colorMul
+                        val sat = (c / 0.22f).coerceIn(0f, 1f)
+                        var skin = 0f
+                        if (q.proSat > 0f || q.vib > 0f) {
+                            var hue = Math.toDegrees(atan2(lb, la).toDouble()).toFloat()
+                            if (hue < 0f) hue += 360f
+                            skin = (1f - abs(hue - 55f) / 30f).coerceIn(0f, 1f)
+                        }
+                        if (q.proSat > 0f) {
+                            // Vibrant-style: dull colours gain the most, strong colours and skin less.
+                            f *= 1f + q.proSat * (0.4f + 0.6f * (1f - sat) * (1f - sat)) * (1f - 0.5f * skin)
+                        } else if (q.proSat < 0f) {
+                            // Minus side: straight fade to black & white (−100 = no colour).
+                            f *= 1f + q.proSat
+                        }
                         if (q.vib != 0f) {
-                            val sat = (c / 0.22f).coerceIn(0f, 1f)
                             if (q.vib > 0f) {
                                 // Boost muted colours most, leave saturated ones and skin mostly alone.
-                                var hue = Math.toDegrees(atan2(lb, la).toDouble()).toFloat()
-                                if (hue < 0f) hue += 360f
-                                val skin = (1f - abs(hue - 55f) / 30f).coerceIn(0f, 1f)
                                 f *= 1f + q.vib * (1f - sat) * (1f - sat) * (1f - 0.6f * skin)
                             } else {
                                 // Negative vibrance tones down the loudest colours first.
