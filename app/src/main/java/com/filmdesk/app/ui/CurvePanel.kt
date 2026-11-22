@@ -13,6 +13,12 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Button
+import androidx.compose.material.icons.automirrored.filled.Undo
+import androidx.compose.material.icons.automirrored.filled.Redo
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -77,24 +83,122 @@ private val CHANNEL_LABELS = listOf("Luma", "Red", "Green", "Blue")
 private val CHANNEL_COLORS = listOf(Color(0xFFF1F0EC), Color(0xFFFF5A5A), Color(0xFF4CD07D), Color(0xFF5B9BFF))
 
 /**
- * DaVinci Resolve-style Custom Curves:
- *  - Y R G B channels drawn together on one graph, the selected one on top with its points
- *  - Link: on = Y moves R, G, B together (YRGB); off = Y changes luma only.
+ * Full-screen Curve editor (layout A): photo on top, and below it three tabs —
+ * Curve | Intensity | Soft Clip — so nothing needs scrolling. Works like DaVinci
+ * Resolve's Custom Curves:
+ *  - Y R G B drawn together, selected one on top with its points
+ *  - Link on = Y moves R, G, B together (YRGB); off = Y changes luma only.
  *    Picking R, G or B unlinks, like Resolve.
- *  - Eyedropper: tap the photo to mark that colour on the curves
- *  - Copy a curve to other channels, reset per channel or all
- *  - Intensity slider per channel, Soft Clip (Low, High, L.S., H.S.)
+ *  - Eyedropper marks a sampled colour on each curve
+ *  - ⋮ copies a curve to other channels or resets
  */
 @Composable
-fun CurvePanel(vm: EditorViewModel) {
+fun CurveScreen(vm: EditorViewModel) {
+    var tab by rememberSaveable { mutableIntStateOf(0) }
     var channel by rememberSaveable { mutableIntStateOf(0) }
+    // Leaving the Curve screen turns the eyedropper off, so hold-to-compare works again.
+    DisposableEffect(Unit) { onDispose { vm.pickerOff() } }
+
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val wide = maxWidth >= 600.dp
+        Column(Modifier.fillMaxSize()) {
+            CurveTopBar(vm)
+            if (wide) {
+                // Unfolded / tablet / landscape: photo left, controls right.
+                Row(Modifier.fillMaxSize()) {
+                    PreviewArea(vm, Modifier.weight(1f).fillMaxHeight().padding(start = 12.dp, bottom = 12.dp))
+                    CurveControls(vm, tab, { tab = it }, channel, { channel = it },
+                        Modifier.width(360.dp).fillMaxHeight())
+                }
+            } else {
+                PreviewArea(vm, Modifier.fillMaxWidth().weight(0.85f))
+                CurveControls(vm, tab, { tab = it }, channel, { channel = it },
+                    Modifier.fillMaxWidth().weight(1.15f))
+            }
+        }
+    }
+}
+
+@Composable
+private fun CurveTopBar(vm: EditorViewModel) {
+    Row(
+        Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconButton(onClick = { vm.closeCurve() }) {
+            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back to Pro", tint = FD.Text)
+        }
+        Text("Curve", color = FD.Text, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+        IconButton(onClick = vm::undo, enabled = vm.canUndo) {
+            Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Undo", tint = if (vm.canUndo) FD.Text else FD.Line)
+        }
+        IconButton(onClick = vm::redo, enabled = vm.canRedo) {
+            Icon(Icons.AutoMirrored.Filled.Redo, contentDescription = "Redo", tint = if (vm.canRedo) FD.Text else FD.Line)
+        }
+        Button(
+            onClick = { vm.closeCurve() },
+            colors = ButtonDefaults.buttonColors(containerColor = FD.Amber, contentColor = FD.OnAmber),
+            modifier = Modifier.padding(end = 8.dp),
+        ) { Text("Done", fontWeight = FontWeight.SemiBold) }
+    }
+}
+
+@Composable
+private fun CurveControls(
+    vm: EditorViewModel,
+    tab: Int,
+    onTab: (Int) -> Unit,
+    channel: Int,
+    onChannel: (Int) -> Unit,
+    modifier: Modifier,
+) {
+    Column(modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        SegmentedTabs(listOf("Curve", "Intensity", "Soft Clip"), tab, onTab)
+        when (tab) {
+            0 -> CurveTab(vm, channel, onChannel, Modifier.fillMaxWidth().weight(1f))
+            1 -> IntensityTab(vm)
+            else -> SoftClipTab(vm)
+        }
+    }
+}
+
+@Composable
+private fun SegmentedTabs(items: List<String>, selected: Int, onSelect: (Int) -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(FD.Surface)
+            .border(1.dp, FD.Line, RoundedCornerShape(12.dp))
+            .padding(3.dp),
+    ) {
+        items.forEachIndexed { i, label ->
+            val on = i == selected
+            Box(
+                Modifier
+                    .weight(1f)
+                    .height(38.dp)
+                    .clip(RoundedCornerShape(9.dp))
+                    .background(if (on) FD.Amber else Color.Transparent)
+                    .selectable(selected = on, role = Role.Tab, onClick = { onSelect(i) }),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    label, fontSize = 13.sp,
+                    color = if (on) FD.OnAmber else FD.Text,
+                    fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CurveTab(vm: EditorViewModel, channel: Int, onChannel: (Int) -> Unit, modifier: Modifier) {
     var menuOpen by remember { mutableStateOf(false) }
     val p = vm.params
     val points = p.curve(channel)
-    // Leaving the Curve panel turns the eyedropper off, so hold-to-compare works again.
-    DisposableEffect(Unit) { onDispose { vm.pickerOff() } }
-
-    Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         // Edit row: link · Y R G B · eyedropper · menu
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             Box(
@@ -119,12 +223,12 @@ fun CurvePanel(vm: EditorViewModel) {
                 Box(
                     Modifier
                         .padding(end = 6.dp)
-                        .size(36.dp)
-                        .clip(RoundedCornerShape(8.dp))
+                        .size(40.dp)
+                        .clip(CircleShape)
                         .background(if (sel) CHANNEL_COLORS[i] else FD.Surface2)
-                        .border(if (edited) 2.dp else 1.dp, if (edited) FD.Amber else FD.Line, RoundedCornerShape(8.dp))
+                        .border(if (edited) 2.dp else 1.dp, if (edited) FD.Amber else FD.Line, CircleShape)
                         .selectable(selected = sel, role = Role.Tab, onClick = {
-                            channel = i
+                            onChannel(i)
                             // Like Resolve: choosing a colour channel breaks the link.
                             if (i != 0 && vm.params.curveLinked) vm.change(vm.params.copy(curveLinked = false))
                         })
@@ -173,22 +277,22 @@ fun CurvePanel(vm: EditorViewModel) {
         }
         Text(
             when {
+                vm.curvePicker -> "Tap the photo to see that colour on the curves"
                 channel == 0 && p.curveLinked -> "Luma · linked: moves red, green and blue together"
                 channel == 0 -> "Luma · unlinked: brightness only, colours stay the same"
-                else -> CHANNEL_LABELS[channel] + " channel"
-            } + if (vm.curvePicker) "  ·  tap the photo to sample" else "",
-            color = FD.Muted, fontSize = 12.sp,
+                else -> CHANNEL_LABELS[channel] + " · drag to add or move points, double-tap to delete"
+            },
+            color = if (vm.curvePicker) FD.Amber else FD.Muted, fontSize = 12.sp,
         )
-
-        // Curve editor: all four curves overlaid, selected one editable
-        BoxWithConstraints(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-            val side = if (maxWidth < 320.dp) maxWidth else 320.dp
+        // The graph takes all the space that's left, as a square.
+        BoxWithConstraints(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+            val side = if (maxWidth < maxHeight) maxWidth else maxHeight
             Box(
                 Modifier
                     .size(side)
-                    .clip(RoundedCornerShape(8.dp))
+                    .clip(RoundedCornerShape(10.dp))
                     .background(Color(0xFF18191B))
-                    .border(1.dp, FD.Line, RoundedCornerShape(8.dp))
+                    .border(1.dp, FD.Line, RoundedCornerShape(10.dp))
             ) {
                 CurveCanvas(
                     params = p,
@@ -201,10 +305,15 @@ fun CurvePanel(vm: EditorViewModel) {
                 )
             }
         }
-        Text("Drag to add or move points · double-tap a point to delete it", color = FD.Muted, fontSize = 12.sp)
+    }
+}
 
-        // Intensity, like Resolve's per-channel sliders
-        SectionLabel("Intensity", Modifier.padding(top = 4.dp))
+@Composable
+private fun IntensityTab(vm: EditorViewModel) {
+    val p = vm.params
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text("How strong each curve is (100 = full)", color = FD.Muted, fontSize = 12.sp)
+        Spacer(Modifier.height(4.dp))
         (0..3).forEach { i ->
             CompactSlider(
                 label = CHANNEL_NAMES[i],
@@ -217,9 +326,13 @@ fun CurvePanel(vm: EditorViewModel) {
                 onReset = { vm.change(vm.params.withMix(i, 100)) },
             )
         }
+    }
+}
 
-        // Soft Clip
-        SectionLabel("Soft Clip", Modifier.padding(top = 4.dp))
+@Composable
+private fun SoftClipTab(vm: EditorViewModel) {
+    val p = vm.params
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         CompactSlider("Low", FD.Text, p.softLow, 0..100, 0,
             { vm.updateParams(vm.params.copy(softLow = it.coerceAtMost(vm.params.softHigh - 1))) }, vm::commit,
             { vm.change(vm.params.copy(softLow = 0)) })
@@ -232,11 +345,11 @@ fun CurvePanel(vm: EditorViewModel) {
         CompactSlider("H.S.", FD.Text, p.softHS, 0..100, 0,
             { vm.updateParams(vm.params.copy(softHS = it)) }, vm::commit,
             { vm.change(vm.params.copy(softHS = 0)) })
+        Spacer(Modifier.height(6.dp))
         Text(
-            "Low/High: output black and white level · L.S./H.S.: soft roll-off for shadows and highlights",
-            color = FD.Muted, fontSize = 11.sp,
+            "Low / High set the darkest black and the brightest white.\nL.S. / H.S. soften crushed shadows and blown highlights.",
+            color = FD.Muted, fontSize = 12.sp, lineHeight = 18.sp,
         )
-        Spacer(Modifier.height(4.dp))
     }
 }
 

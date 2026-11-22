@@ -4,6 +4,10 @@ on:
   push:
   workflow_dispatch:
 
+# Needed to publish the APK as a GitHub Release.
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -19,11 +23,11 @@ jobs:
       - name: Accept Android SDK licenses
         run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
 
-      - name: Build debug and release APKs
+      - name: Build release APK
         run: |
           set -o pipefail
           chmod +x gradlew
-          ./gradlew assembleDebug assembleRelease --no-daemon --continue 2>&1 | tee build.log
+          ./gradlew assembleRelease --no-daemon 2>&1 | tee build.log
 
       # On failure, show the compiler errors as annotations on the run page.
       - name: Show compile errors
@@ -36,7 +40,19 @@ jobs:
             [ -n "$line" ] && echo "::warning::$line"
           done
 
-      - uses: actions/upload-artifact@v4
+      - name: Name the APK
+        run: cp app/build/outputs/apk/release/app-release.apk FilmDesk.apk
+
+      # One file, no zip: download FilmDesk.apk straight from the Releases page.
+      # https://github.com/<owner>/<repo>/releases/latest/download/FilmDesk.apk always gets the newest build.
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
         with:
-          name: FilmDesk-apk
-          path: app/build/outputs/apk/**/*.apk
+          tag_name: build-${{ github.run_number }}
+          name: Film Desk build ${{ github.run_number }}
+          body: |
+            Built from `${{ github.ref_name }}` (${{ github.sha }}).
+            Download **FilmDesk.apk** below and open it on your phone to install.
+          files: FilmDesk.apk
+          target_commitish: ${{ github.sha }}
+          make_latest: true

@@ -77,6 +77,10 @@ import kotlin.math.roundToInt
 
 @Composable
 fun EditorScreen(vm: EditorViewModel) {
+    if (vm.curveMode) {
+        CurveScreen(vm)
+        return
+    }
     BoxWithConstraints(Modifier.fillMaxSize()) {
         // Wide = unfolded foldable, tablet, or phone in landscape.
         val wide = maxWidth >= 600.dp
@@ -161,7 +165,7 @@ private fun EditorTopBar(vm: EditorViewModel) {
 }
 
 @Composable
-private fun PreviewArea(vm: EditorViewModel, modifier: Modifier) {
+internal fun PreviewArea(vm: EditorViewModel, modifier: Modifier) {
     var showOriginal by remember { mutableStateOf(false) }
     val picking = vm.curvePicker
     val imgW = vm.preview?.width ?: 0

@@ -26,7 +26,9 @@ fun FilmDeskApp(vm: EditorViewModel) {
             snackbar.showSnackbar(m)
             vm.message = null
         }
-        BackHandler(enabled = vm.screen != Screen.Library) { vm.back() }
+        BackHandler(enabled = vm.screen != Screen.Library || vm.curveMode) {
+            if (vm.curveMode) vm.closeCurve() else vm.back()
+        }
 
         Box(
             Modifier

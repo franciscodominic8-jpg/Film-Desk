@@ -63,6 +63,16 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
     /** Last sampled colour (r, g, b in 0..1), drawn as markers on the curves. */
     var curveSample by mutableStateOf<FloatArray?>(null); private set
 
+    /** True while the full-screen Curve editor is open. */
+    var curveMode by mutableStateOf(false); private set
+
+    fun openCurve() { curveMode = true }
+
+    fun closeCurve() {
+        pickerOff()
+        curveMode = false
+    }
+
     /** Where the eyedropper was tapped, as fractions of the (cropped) image. */
     private var samplePos: Pair<Float, Float>? = null
 

@@ -45,13 +45,17 @@ fun ProPanel(vm: EditorViewModel) {
             Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            PRO_GROUPS.forEachIndexed { i, g -> Pill(g.label, selected = group == i, onClick = { group = i }) }
+            PRO_GROUPS.forEachIndexed { i, g ->
+                // Curve opens its own full-screen editor instead of a group of sliders.
+                if (g.label == "Curve") Pill(g.label, selected = false, onClick = { vm.openCurve() })
+                else Pill(g.label, selected = group == i, onClick = { group = i })
+            }
         }
 
         val g = PRO_GROUPS[group]
         val sliders: List<ProSlider> = if (g.label == "HSL") hslSliders(band) else g.sliders
 
-        if (g.label == "Curve") CurvePanel(vm)
+        if (g.label == "Curve") Unit
         else Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             if (g.label == "HSL") {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
