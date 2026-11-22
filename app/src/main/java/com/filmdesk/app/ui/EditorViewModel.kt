@@ -1,6 +1,8 @@
 package com.filmdesk.app.ui
 
 import android.app.Application
+import android.content.Intent
+import android.provider.OpenableColumns
 import android.graphics.Bitmap
 import android.net.Uri
 import androidx.compose.runtime.getValue
@@ -12,6 +14,8 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.filmdesk.app.data.Recipe
 import com.filmdesk.app.data.RecipeStore
+import com.filmdesk.app.data.StudioItem
+import com.filmdesk.app.data.StudioStore
 import com.filmdesk.app.engine.BitmapIO
 import com.filmdesk.app.engine.ImageEngine
 import com.filmdesk.app.engine.ImageStats
@@ -19,6 +23,8 @@ import com.filmdesk.app.model.EXPORT_SIZES
 import com.filmdesk.app.model.EditParams
 import com.filmdesk.app.model.ExportFormat
 import com.filmdesk.app.model.FILM_SIMS
+import com.filmdesk.app.model.PastePart
+import com.filmdesk.app.model.pasteFrom
 import com.filmdesk.app.model.caption
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -26,11 +32,14 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 
-enum class Screen { Library, Editor, Recipes, Export }
+/** Library is the Studio (imported photos); Import is the gallery picker. */
+enum class Screen { Library, Import, Editor, Recipes, Export }
 
 enum class EditorTab(val label: String) { Film("Film"), QMenu("Q Menu"), Pro("Pro"), Crop("Crop") }
 
@@ -44,9 +53,38 @@ data class ExportSettings(
     val keepLocation: Boolean = false,
 )
 
+/** Edits on the clipboard, from the photo called [fromName]. */
+data class CopiedEdits(val params: EditParams, val fromName: String, val fromId: Long?)
+
 class EditorViewModel(app: Application) : AndroidViewModel(app) {
 
     private val store = RecipeStore(app)
+    private val studioStore = StudioStore(app)
+
+    // ---------------------------------------------------------------- studio
+
+    /** Imported photos, newest first. Each keeps its own edits. */
+    var studio by mutableStateOf<List<StudioItem>>(emptyList()); private set
+    /** Edited thumbnails, by studio id. */
+    val studioThumbs = mutableStateMapOf<Long, Bitmap>()
+    /** Studio photos that can't be read any more (deleted from the phone or access lost). */
+    val studioMissing = mutableStateMapOf<Long, Boolean>()
+    /** The studio photo open in the editor. */
+    var currentId by mutableStateOf<Long?>(null); private set
+    var selection by mutableStateOf<Set<Long>>(emptySet()); private set
+    val selecting: Boolean get() = selection.isNotEmpty()
+    var clipboard by mutableStateOf<CopiedEdits?>(null); private set
+    /** Photos that just received pasted edits (outlined for a moment). */
+    var justPasted by mutableStateOf<Set<Long>>(emptySet()); private set
+    var batchProgress by mutableStateOf<String?>(null); private set
+    /** A snackbar "Undo" offer: shown when [message] equals the first value. */
+    var undoOffer by mutableStateOf<Pair<String, () -> Unit>?>(null)
+
+    private var studioUndo: List<StudioItem>? = null
+    private val thumbGate = Semaphore(2)
+    private val studioThumbJobs = HashMap<Long, Job>()
+    private var saveJob: Job? = null
+    private var pastedJob: Job? = null
 
     var screen by mutableStateOf(Screen.Library); private set
     private val backStack = ArrayList<Screen>()
@@ -133,18 +171,22 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
     init {
         recipes = store.load()
         repeat(FILM_SIMS.size) { simThumbs.add(null) }
+        studio = studioStore.load()
+        studio.forEach { refreshThumb(it, useCache = true) }
     }
 
     // ------------------------------------------------------------ navigation
 
     fun navigate(to: Screen) {
         if (to == screen) return
+        if (screen == Screen.Editor) flushSave()
         backStack.add(screen)
         screen = to
     }
 
     /** Returns false when there is nothing to go back to (the system closes the app). */
     fun back(): Boolean {
+        if (screen == Screen.Editor) flushSave()
         if (backStack.isEmpty()) {
             if (screen == Screen.Library) return false
             screen = Screen.Library
@@ -156,7 +198,21 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---------------------------------------------------------------- images
 
+    /** Opens a photo shared to the app: adds it to the Studio and opens it. */
     fun openImage(uri: Uri) {
+        val item = importPhotos(listOf(uri), quiet = true).firstOrNull() ?: return
+        openItem(item)
+    }
+
+    /** Opens a Studio photo with its own saved edits (a new photo starts with none). */
+    fun openItem(item: StudioItem) {
+        flushSave()
+        clearSelection()
+        val start = studio.firstOrNull { it.id == item.id }?.params ?: EditParams()
+        loadImage(item.uri, item.id, start)
+    }
+
+    private fun loadImage(uri: Uri, id: Long, start: EditParams) {
         loading = true
         preview = null
         original = null
@@ -169,7 +225,8 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
             if (bmp == null) {
                 loading = false
                 message = "Couldn't open this photo"
-                if (source == null) back()
+                studioMissing[id] = true
+                back()
                 return@launch
             }
             sourceUri = uri
@@ -181,8 +238,8 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
                 )
             }
             stats = withContext(Dispatchers.Default) { ImageEngine.computeStats(bmp) }
-            // Keep the current look (handy for editing a series), reset the crop.
-            params = params.copy(aspect = 0, rotation = 0, flipH = false)
+            currentId = id
+            params = start
             committed = params
             undoStack.clear(); redoStack.clear(); updateUndo()
             loading = false
@@ -279,6 +336,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         committed = params
         updateUndo()
         renderThumbs()
+        scheduleSave()
     }
 
     /** Discrete change: apply and record in history. */
@@ -293,7 +351,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         redoStack.addLast(params)
         params = undoStack.removeLast()
         committed = params
-        updateUndo(); requestRender(); renderThumbs()
+        updateUndo(); requestRender(); renderThumbs(); scheduleSave()
     }
 
     fun redo() {
@@ -301,7 +359,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         undoStack.addLast(params)
         params = redoStack.removeLast()
         committed = params
-        updateUndo(); requestRender(); renderThumbs()
+        updateUndo(); requestRender(); renderThumbs(); scheduleSave()
     }
 
     private fun updateUndo() {
@@ -348,6 +406,26 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---------------------------------------------------------------- export
 
+    /** Renders one photo at export size and saves or shares it. Returns the output size. */
+    private suspend fun exportOne(uri: Uri, p: EditParams, knownStats: ImageStats?, s: ExportSettings, share: Boolean): String {
+        val ctx = getApplication<Application>()
+        val limit = BitmapIO.maxExportLongEdge()
+        val edge = min(EXPORT_SIZES[s.size] ?: limit, limit)
+        val full = withContext(Dispatchers.IO) { BitmapIO.decode(ctx, uri, edge) }
+            ?: error("Couldn't read the original photo")
+        val st = knownStats ?: withContext(Dispatchers.Default) { ImageEngine.computeStats(full) }
+        var out = withContext(Dispatchers.Default) { ImageEngine.render(full, p, st) }
+        if (s.border) out = withContext(Dispatchers.Default) { BitmapIO.addBorder(out, p.caption()) }
+        val json = if (s.embedRecipe && s.format == ExportFormat.JPEG) p.toJson().toString() else null
+        if (share) {
+            withContext(Dispatchers.IO) { BitmapIO.share(ctx, out, s.format, s.quality, uri, json, s.keepLocation) }
+        } else {
+            withContext(Dispatchers.IO) { BitmapIO.saveToGallery(ctx, out, s.format, s.quality, json, uri, s.keepLocation) }
+                ?: error("Couldn't save the photo")
+        }
+        return "${out.width}×${out.height}"
+    }
+
     fun export(share: Boolean) {
         val uri = sourceUri ?: return
         if (exporting) return
@@ -357,21 +435,8 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         exporting = true
         viewModelScope.launch {
             try {
-                val ctx = getApplication<Application>()
-                val limit = BitmapIO.maxExportLongEdge()
-                val edge = min(EXPORT_SIZES[s.size] ?: limit, limit)
-                val full = withContext(Dispatchers.IO) { BitmapIO.decode(ctx, uri, edge) }
-                    ?: error("Couldn't read the original photo")
-                var out = withContext(Dispatchers.Default) { ImageEngine.render(full, p, st) }
-                if (s.border) out = withContext(Dispatchers.Default) { BitmapIO.addBorder(out, p.caption()) }
-                val json = if (s.embedRecipe && s.format == ExportFormat.JPEG) p.toJson().toString() else null
-                if (share) {
-                    withContext(Dispatchers.IO) { BitmapIO.share(ctx, out, s.format, s.quality, uri, json, s.keepLocation) }
-                } else {
-                    withContext(Dispatchers.IO) { BitmapIO.saveToGallery(ctx, out, s.format, s.quality, json, uri, s.keepLocation) }
-                        ?: error("Couldn't save the photo")
-                    message = "Saved to Pictures/FilmDesk (${out.width}×${out.height})"
-                }
+                val size = exportOne(uri, p, st, s, share)
+                if (!share) message = "Saved to Pictures/FilmDesk ($size)"
             } catch (e: CancellationException) {
                 throw e
             } catch (e: OutOfMemoryError) {
@@ -384,7 +449,230 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    // ----------------------------------------------------------- studio ops
+
+    private fun setStudio(list: List<StudioItem>) {
+        studio = list
+        val snapshot = list
+        viewModelScope.launch(Dispatchers.IO) { synchronized(studioStore) { studioStore.save(snapshot) } }
+    }
+
+    /** Adds photos to the Studio (skipping ones already there). Returns the items for [uris]. */
+    fun importPhotos(uris: List<Uri>, quiet: Boolean = false): List<StudioItem> {
+        if (uris.isEmpty()) return emptyList()
+        val cr = getApplication<Application>().contentResolver
+        val byUri = studio.associateBy { it.uri.toString() }
+        var nextId = max(System.currentTimeMillis(), (studio.maxOfOrNull { it.id } ?: 0L) + 1)
+        val fresh = ArrayList<StudioItem>()
+        val result = uris.distinct().map { uri ->
+            byUri[uri.toString()] ?: run {
+                // Keeps access after a restart for photos picked with the system picker.
+                try { cr.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (e: Exception) { }
+                StudioItem(id = nextId++, uri = uri).also { fresh += it }
+            }
+        }
+        if (fresh.isNotEmpty()) {
+            setStudio(fresh + studio)
+            fresh.forEach { refreshThumb(it) }
+        }
+        if (!quiet) message = when (fresh.size) {
+            0 -> "Already in your Studio"
+            1 -> "Imported 1 photo"
+            else -> "Imported ${fresh.size} photos"
+        }
+        return result
+    }
+
+    /** Draws a Studio thumbnail with that photo's own edits, and caches it on disk. */
+    private fun refreshThumb(item: StudioItem, useCache: Boolean = false) {
+        studioThumbJobs[item.id]?.cancel()
+        studioThumbJobs[item.id] = viewModelScope.launch {
+            thumbGate.withPermit {
+                if (useCache) {
+                    val cached = withContext(Dispatchers.IO) { studioStore.readThumb(item.id) }
+                    if (cached != null) { studioThumbs[item.id] = cached; return@launch }
+                }
+                val ctx = getApplication<Application>()
+                val src = withContext(Dispatchers.IO) {
+                    try { BitmapIO.decode(ctx, item.uri, STUDIO_THUMB_EDGE) } catch (e: Throwable) { null }
+                }
+                if (src == null) { studioMissing[item.id] = true; return@launch }
+                studioMissing.remove(item.id)
+                val p = item.params
+                val out = if (p == null) src else withContext(Dispatchers.Default) {
+                    try {
+                        ImageEngine.render(src, p, ImageEngine.computeStats(src), detail = false)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Throwable) {
+                        src
+                    }
+                }
+                studioThumbs[item.id] = out
+                withContext(Dispatchers.IO) { studioStore.writeThumb(item.id, out) }
+            }
+        }
+    }
+
+    private fun scheduleSave() {
+        val id = currentId ?: return
+        saveJob?.cancel()
+        saveJob = viewModelScope.launch {
+            delay(500)
+            saveCurrent(id)
+        }
+    }
+
+    /** Writes pending editor changes to the open Studio photo right away. */
+    private fun flushSave() {
+        saveJob?.cancel()
+        currentId?.let { saveCurrent(it) }
+    }
+
+    private fun saveCurrent(id: Long) {
+        if (id != currentId || source == null) return
+        val stored = params.takeIf { it != EditParams() }
+        val item = studio.firstOrNull { it.id == id } ?: return
+        if (item.params == stored) return
+        val updated = item.copy(params = stored)
+        setStudio(studio.map { if (it.id == id) updated else it })
+        refreshThumb(updated)
+    }
+
+    private fun displayName(uri: Uri): String {
+        val name = try {
+            getApplication<Application>().contentResolver
+                .query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+                ?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
+        } catch (e: Exception) {
+            null
+        }
+        return name?.substringBeforeLast('.')?.takeIf { it.isNotBlank() } ?: "this photo"
+    }
+
+    fun toggleSelect(id: Long) {
+        selection = if (id in selection) selection - id else selection + id
+    }
+
+    fun selectAll(ids: Collection<Long>) { selection = ids.toSet() }
+
+    fun clearSelection() { selection = emptySet() }
+
+    fun copyEdits(id: Long) {
+        val item = studio.firstOrNull { it.id == id } ?: return
+        clipboard = CopiedEdits(item.params ?: EditParams(), displayName(item.uri), id)
+        message = "Edits copied — select photos and tap Paste"
+    }
+
+    /** Copy in the editor: the open photo's current edits. */
+    fun copyCurrent() {
+        val item = studio.firstOrNull { it.id == currentId }
+        clipboard = CopiedEdits(params, item?.let { displayName(it.uri) } ?: "this photo", currentId)
+        message = "Edits copied"
+    }
+
+    fun clearClipboard() { clipboard = null }
+
+    /** Paste in the editor: applies the chosen parts to the open photo (undo works as usual). */
+    fun pasteCurrent(parts: Set<PastePart>) {
+        val c = clipboard ?: return
+        change(params.pasteFrom(c.params, parts))
+        message = "Edits pasted"
+    }
+
+    private fun offerUndo(text: String, before: List<StudioItem>) {
+        studioUndo = before
+        undoOffer = text to { undoStudio() }
+        message = text
+    }
+
+    fun undoStudio() {
+        val before = studioUndo ?: return
+        studioUndo = null
+        val now = studio.associateBy { it.id }
+        setStudio(before)
+        before.filter { now[it.id] != it }.forEach { refreshThumb(it) }
+    }
+
+    fun pasteToSelection(parts: Set<PastePart>) {
+        val c = clipboard ?: return
+        val targets = selection
+        if (targets.isEmpty() || parts.isEmpty()) return
+        val before = studio
+        val updated = studio.map { item ->
+            if (item.id !in targets) item else {
+                val p = (item.params ?: EditParams()).pasteFrom(c.params, parts)
+                item.copy(params = p.takeIf { it != EditParams() })
+            }
+        }
+        setStudio(updated)
+        updated.filter { it.id in targets }.forEach { refreshThumb(it) }
+        clearSelection()
+        justPasted = targets
+        pastedJob?.cancel()
+        pastedJob = viewModelScope.launch { delay(4000); justPasted = emptySet() }
+        offerUndo(if (targets.size == 1) "Pasted to 1 photo" else "Pasted to ${targets.size} photos", before)
+    }
+
+    fun resetSelection() {
+        val targets = selection
+        if (targets.isEmpty()) return
+        val before = studio
+        val updated = studio.map { if (it.id in targets) it.copy(params = null) else it }
+        setStudio(updated)
+        updated.filter { it.id in targets }.forEach { refreshThumb(it) }
+        clearSelection()
+        offerUndo("Reset ${targets.size} photo" + if (targets.size == 1) "" else "s", before)
+    }
+
+    fun removeSelection() {
+        val targets = selection
+        if (targets.isEmpty()) return
+        val before = studio
+        setStudio(studio.filterNot { it.id in targets })
+        targets.forEach { id ->
+            studioThumbJobs.remove(id)?.cancel()
+            studioThumbs.remove(id)
+            studioMissing.remove(id)
+            viewModelScope.launch(Dispatchers.IO) { studioStore.deleteThumb(id) }
+        }
+        if (currentId in targets) { flushSave(); currentId = null }
+        clearSelection()
+        offerUndo("Removed ${targets.size} from Studio (originals are kept)", before)
+    }
+
+    /** Saves every selected photo with its own edits, using the current export settings. */
+    fun exportSelection() {
+        if (exporting) return
+        val items = studio.filter { it.id in selection }
+        if (items.isEmpty()) return
+        val s = exportSettings
+        exporting = true
+        clearSelection()
+        viewModelScope.launch {
+            var ok = 0
+            try {
+                for ((i, item) in items.withIndex()) {
+                    batchProgress = "Exporting ${i + 1} of ${items.size}…"
+                    try {
+                        exportOne(item.uri, item.params ?: EditParams(), null, s, share = false)
+                        ok++
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Throwable) {
+                        // Skip photos that can't be read or don't fit in memory.
+                    }
+                }
+            } finally {
+                batchProgress = null
+                exporting = false
+            }
+            message = if (ok == items.size) "Saved $ok to Pictures/FilmDesk" else "Saved $ok of ${items.size} to Pictures/FilmDesk"
+        }
+    }
+
     companion object {
+        const val STUDIO_THUMB_EDGE = 360
         /** Preview long edge: sharp on phones and foldables, fast enough on low-end chips. */
         const val PREVIEW_EDGE = 1440
         const val THUMB_EDGE = 200

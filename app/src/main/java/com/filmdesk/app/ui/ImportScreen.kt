@@ -9,6 +9,8 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -29,12 +31,14 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AddPhotoAlternate
-import androidx.compose.material.icons.filled.FilterVintage
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -49,6 +53,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -69,8 +74,9 @@ private fun galleryPermissions(): Array<String> = when {
     else -> arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
 }
 
+/** Picks photos to add to the Studio: tap to select several, then Import. */
 @Composable
-fun LibraryScreen(vm: EditorViewModel) {
+fun ImportScreen(vm: EditorViewModel) {
     val context = LocalContext.current
     val perms = remember { galleryPermissions() }
     fun hasAccess() = perms.any { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED }
@@ -84,9 +90,17 @@ fun LibraryScreen(vm: EditorViewModel) {
     var partial by remember { mutableStateOf(partialOnly()) }
     var photos by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
     var refresh by remember { mutableStateOf(0) }
+    var picked by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
+    val inStudio = remember(vm.studio) { vm.studio.map { it.uri.toString() }.toHashSet() }
 
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-        if (uri != null) vm.openImage(uri)
+    fun finish(uris: List<android.net.Uri>) {
+        if (uris.isEmpty()) return
+        vm.importPhotos(uris)
+        vm.back()
+    }
+
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(100)) { uris ->
+        finish(uris)
     }
     val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         granted = hasAccess()
@@ -116,18 +130,24 @@ fun LibraryScreen(vm: EditorViewModel) {
         Column(Modifier.fillMaxSize()) {
             // Header
             Row(
-                Modifier.fillMaxWidth().padding(start = 20.dp, end = 12.dp, top = 20.dp, bottom = 12.dp),
+                Modifier.fillMaxWidth().height(64.dp).padding(start = 4.dp, end = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                IconButton(onClick = { vm.back() }) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = FD.Text)
+                }
                 Column(Modifier.weight(1f)) {
-                    SectionLabel("Film Desk")
-                    Text("Library", color = FD.Text, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+                    Text("Import photos", color = FD.Text, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        if (picked.isEmpty()) "Tap photos to select" else "${picked.size} selected",
+                        color = if (picked.isEmpty()) FD.Muted else FD.Amber, fontSize = 12.sp,
+                    )
                 }
-                OutlinedButton(onClick = { vm.navigate(Screen.Recipes) }) {
-                    Icon(Icons.Filled.FilterVintage, contentDescription = null, tint = FD.Amber, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("Recipes", color = FD.Text)
-                }
+                Button(
+                    onClick = { finish(picked.map { it.uri }) },
+                    enabled = picked.isNotEmpty(),
+                    colors = ButtonDefaults.buttonColors(containerColor = FD.Amber, contentColor = FD.OnAmber),
+                ) { Text(if (picked.isEmpty()) "Import" else "Import ${picked.size}", fontWeight = FontWeight.SemiBold) }
             }
 
             // Open photo card
@@ -139,11 +159,12 @@ fun LibraryScreen(vm: EditorViewModel) {
                     ) { Icon(Icons.Filled.AddPhotoAlternate, contentDescription = null, tint = FD.Amber) }
                     Spacer(Modifier.width(14.dp))
                     Column(Modifier.weight(1f)) {
-                        Text("Open a photo", color = FD.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                        Text("JPEG, HEIF, PNG or WebP from any app", color = FD.Muted, fontSize = 12.sp)
+                        Text("From other apps", color = FD.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                        Text("Google Photos, Files… choose one or many", color = FD.Muted, fontSize = 12.sp)
                     }
                     Button(
                         onClick = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                        contentPadding = PaddingValues(horizontal = 16.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = FD.Amber, contentColor = FD.OnAmber),
                     ) { Text("Pick") }
                 }
@@ -159,7 +180,7 @@ fun LibraryScreen(vm: EditorViewModel) {
                     Icon(Icons.Filled.PhotoLibrary, contentDescription = null, tint = FD.Muted, modifier = Modifier.size(48.dp))
                     Text("Browse your gallery here", color = FD.Text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                     Text(
-                        "Allow photo access to see your pictures in Film Desk. You can also just use Pick above.",
+                        "Allow photo access to pick several photos here. You can also use Pick above.",
                         color = FD.Muted, fontSize = 13.sp,
                     )
                     Button(
@@ -195,7 +216,12 @@ fun LibraryScreen(vm: EditorViewModel) {
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(horizontal = 18.dp, vertical = 8.dp),
                 ) {
-                    items(photos, key = { it.id }) { item -> MediaThumb(item) { vm.openImage(item.uri) } }
+                    items(photos, key = { it.id }) { item ->
+                        val sel = picked.any { it.id == item.id }
+                        MediaThumb(item, selected = sel, already = item.uri.toString() in inStudio) {
+                            picked = if (sel) picked.filterNot { it.id == item.id } else picked + item
+                        }
+                    }
                 }
             }
         }
@@ -203,7 +229,7 @@ fun LibraryScreen(vm: EditorViewModel) {
 }
 
 @Composable
-private fun MediaThumb(item: MediaItem, onClick: () -> Unit) {
+private fun MediaThumb(item: MediaItem, selected: Boolean, already: Boolean, onClick: () -> Unit) {
     val context = LocalContext.current
     val bmp by produceState<Bitmap?>(initialValue = null, item.id) {
         value = MediaRepository.thumbnail(context, item)
@@ -213,13 +239,39 @@ private fun MediaThumb(item: MediaItem, onClick: () -> Unit) {
             .aspectRatio(1f)
             .padding(2.dp)
             .clip(RoundedCornerShape(6.dp))
-            .background(FD.Surface)
-            .clickable(onClickLabel = "Edit photo", onClick = onClick)
+            .background(if (selected) FD.AmberDim else FD.Surface)
+            .clickable(onClickLabel = "Select photo", onClick = onClick)
+            .padding(if (selected) 8.dp else 0.dp)
     ) {
         val b = bmp
         if (b != null) {
             val img = remember(b) { b.asImageBitmap() }
-            Image(img, contentDescription = "Photo", modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            Image(
+                img, contentDescription = "Photo",
+                modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(if (selected) 4.dp else 0.dp)),
+                contentScale = ContentScale.Crop,
+            )
+        }
+        if (already && !selected) {
+            Text(
+                "In Studio", color = FD.Text, fontSize = 9.sp,
+                modifier = Modifier.align(Alignment.BottomStart).padding(4.dp)
+                    .clip(RoundedCornerShape(4.dp)).background(Color(0xBF0B0B0C)).padding(horizontal = 5.dp, vertical = 1.dp),
+            )
+        }
+        Box(
+            Modifier
+                .align(Alignment.TopEnd)
+                .padding(4.dp)
+                .size(22.dp)
+                .clip(CircleShape)
+                .then(
+                    if (selected) Modifier.background(FD.Amber)
+                    else Modifier.background(Color(0x40000000)).border(2.dp, Color(0xD9F1F0EC), CircleShape)
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (selected) Icon(Icons.Filled.Check, contentDescription = "Selected", tint = FD.OnAmber, modifier = Modifier.size(16.dp))
         }
     }
 }

@@ -1,5 +1,10 @@
 package com.filmdesk.app.ui
 
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.ContentPaste
+import androidx.compose.material.icons.filled.ContentCopy
 import android.graphics.Bitmap
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -114,6 +119,9 @@ fun EditorScreen(vm: EditorViewModel) {
 @Composable
 private fun EditorTopBar(vm: EditorViewModel) {
     var showSave by remember { mutableStateOf(false) }
+    var showPaste by remember { mutableStateOf(false) }
+    var menu by remember { mutableStateOf(false) }
+    val btn = Modifier.size(44.dp)
     Row(
         Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -122,14 +130,30 @@ private fun EditorTopBar(vm: EditorViewModel) {
             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = FD.Text)
         }
         Spacer(Modifier.weight(1f))
-        IconButton(onClick = vm::undo, enabled = vm.canUndo) {
+        IconButton(onClick = vm::undo, enabled = vm.canUndo, modifier = btn) {
             Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Undo", tint = if (vm.canUndo) FD.Text else FD.Line)
         }
-        IconButton(onClick = vm::redo, enabled = vm.canRedo) {
+        IconButton(onClick = vm::redo, enabled = vm.canRedo, modifier = btn) {
             Icon(Icons.AutoMirrored.Filled.Redo, contentDescription = "Redo", tint = if (vm.canRedo) FD.Text else FD.Line)
         }
-        IconButton(onClick = { showSave = true }) {
-            Icon(Icons.Filled.BookmarkAdd, contentDescription = "Save as recipe", tint = FD.Text)
+        IconButton(onClick = vm::copyCurrent, enabled = vm.hasImage, modifier = btn) {
+            Icon(Icons.Filled.ContentCopy, contentDescription = "Copy edits", tint = FD.Text)
+        }
+        val canPaste = vm.clipboard != null && vm.hasImage
+        IconButton(onClick = { showPaste = true }, enabled = canPaste, modifier = btn) {
+            Icon(Icons.Filled.ContentPaste, contentDescription = "Paste edits", tint = if (canPaste) FD.Amber else FD.Line)
+        }
+        Box {
+            IconButton(onClick = { menu = true }, modifier = btn) {
+                Icon(Icons.Filled.MoreVert, contentDescription = "More", tint = FD.Text)
+            }
+            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, containerColor = FD.Surface2) {
+                DropdownMenuItem(
+                    text = { Text("Save as recipe", color = FD.Text) },
+                    leadingIcon = { Icon(Icons.Filled.BookmarkAdd, contentDescription = null, tint = FD.Text) },
+                    onClick = { menu = false; showSave = true },
+                )
+            }
         }
         Button(
             onClick = { vm.navigate(Screen.Export) },
@@ -137,6 +161,17 @@ private fun EditorTopBar(vm: EditorViewModel) {
             colors = ButtonDefaults.buttonColors(containerColor = FD.Amber, contentColor = FD.OnAmber),
             modifier = Modifier.padding(end = 8.dp),
         ) { Text("Export", fontWeight = FontWeight.SemiBold) }
+    }
+
+    val clip = vm.clipboard
+    if (showPaste && clip != null) {
+        PasteSheet(
+            title = "Paste edits to this photo",
+            from = clip.fromName,
+            confirm = "Paste",
+            onDismiss = { showPaste = false },
+            onPaste = { parts -> showPaste = false; vm.pasteCurrent(parts) },
+        )
     }
 
     if (showSave) {
