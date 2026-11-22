@@ -54,6 +54,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -127,7 +128,11 @@ fun StudioScreen(vm: EditorViewModel) {
                         StudioFilter.Edited -> edited
                         StudioFilter.NotEdited -> all.size - edited
                     }
-                    Pill("${f.label} · $n", selected = filter == f, onClick = { filter = f })
+                    Pill("${f.label} · $n", selected = filter == f, onClick = {
+                        // Photos hidden by the filter must not stay selected.
+                        if (filter != f) vm.clearSelection()
+                        filter = f
+                    })
                 }
             }
 
@@ -170,7 +175,7 @@ fun StudioScreen(vm: EditorViewModel) {
 
     val clip = vm.clipboard
     if (showPaste && clip != null) {
-        val n = vm.selection.size
+        val n = vm.pasteTargets.size
         PasteSheet(
             title = if (n == 1) "Paste edits to 1 photo" else "Paste edits to $n photos",
             from = clip.fromName,
@@ -261,6 +266,7 @@ private fun StudioCell(vm: EditorViewModel, item: StudioItem) {
     val copiedFrom = vm.selecting && vm.clipboard?.fromId == item.id
     val bmp = vm.studioThumbs[item.id]
     val missing = vm.studioMissing[item.id] == true
+    LaunchedEffect(item.id, bmp == null) { if (bmp == null) vm.ensureThumb(item.id) }
     Box(
         Modifier
             .aspectRatio(1f)
@@ -282,16 +288,16 @@ private fun StudioCell(vm: EditorViewModel, item: StudioItem) {
                 .then(if (item.id in vm.justPasted) Modifier.border(2.dp, FD.Amber) else Modifier)
         ) {
             when {
-                bmp != null -> {
-                    val img = remember(bmp) { bmp.asImageBitmap() }
-                    Image(img, contentDescription = "Photo", modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-                }
                 missing -> Column(
                     Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center,
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Icon(Icons.Filled.BrokenImage, contentDescription = null, tint = FD.Muted)
-                    Text("Not found", color = FD.Muted, fontSize = 10.sp)
+                    Text("Not on phone", color = FD.Muted, fontSize = 10.sp)
+                }
+                bmp != null -> {
+                    val img = remember(bmp) { bmp.asImageBitmap() }
+                    Image(img, contentDescription = "Photo", modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                 }
             }
             val p = item.params

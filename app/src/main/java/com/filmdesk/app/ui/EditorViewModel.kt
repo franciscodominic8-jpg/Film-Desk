@@ -83,6 +83,8 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
     private var studioUndo: List<StudioItem>? = null
     private val thumbGate = Semaphore(2)
     private val studioThumbJobs = HashMap<Long, Job>()
+    /** Thumbnail ids in the order they were loaded, to keep only the most recent in memory. */
+    private val thumbOrder = LinkedHashSet<Long>()
     private var saveJob: Job? = null
     private var pastedJob: Job? = null
 
@@ -172,7 +174,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         recipes = store.load()
         repeat(FILM_SIMS.size) { simThumbs.add(null) }
         studio = studioStore.load()
-        studio.forEach { refreshThumb(it, useCache = true) }
+        // Thumbnails load lazily as grid cells appear (see ensureThumb).
     }
 
     // ------------------------------------------------------------ navigation
@@ -488,11 +490,19 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         studioThumbJobs[item.id]?.cancel()
         studioThumbJobs[item.id] = viewModelScope.launch {
             thumbGate.withPermit {
+                val ctx = getApplication<Application>()
                 if (useCache) {
                     val cached = withContext(Dispatchers.IO) { studioStore.readThumb(item.id) }
-                    if (cached != null) { studioThumbs[item.id] = cached; return@launch }
+                    if (cached != null) {
+                        // Still on the phone? (It may have been deleted from the Gallery.)
+                        val exists = withContext(Dispatchers.IO) {
+                            try { ctx.contentResolver.openFileDescriptor(item.uri, "r")?.use { true } ?: false } catch (e: Exception) { false }
+                        }
+                        if (exists) studioMissing.remove(item.id) else studioMissing[item.id] = true
+                        putThumb(item.id, cached)
+                        return@launch
+                    }
                 }
-                val ctx = getApplication<Application>()
                 val src = withContext(Dispatchers.IO) {
                     try { BitmapIO.decode(ctx, item.uri, STUDIO_THUMB_EDGE) } catch (e: Throwable) { null }
                 }
@@ -508,10 +518,27 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
                         src
                     }
                 }
-                studioThumbs[item.id] = out
+                putThumb(item.id, out)
                 withContext(Dispatchers.IO) { studioStore.writeThumb(item.id, out) }
             }
         }
+    }
+
+    private fun putThumb(id: Long, bmp: Bitmap) {
+        studioThumbs[id] = bmp
+        thumbOrder.remove(id)
+        thumbOrder.add(id)
+        while (thumbOrder.size > MAX_THUMBS_IN_MEMORY) {
+            val oldest = thumbOrder.first()
+            thumbOrder.remove(oldest)
+            studioThumbs.remove(oldest)
+        }
+    }
+
+    /** Called by a grid cell that needs its thumbnail. */
+    fun ensureThumb(id: Long) {
+        if (studioThumbs.containsKey(id) || studioThumbJobs[id]?.isActive == true) return
+        studio.firstOrNull { it.id == id }?.let { refreshThumb(it, useCache = true) }
     }
 
     private fun scheduleSave() {
@@ -524,7 +551,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Writes pending editor changes to the open Studio photo right away. */
-    private fun flushSave() {
+    fun flushSave() {
         saveJob?.cancel()
         currentId?.let { saveCurrent(it) }
     }
@@ -592,11 +619,37 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         val now = studio.associateBy { it.id }
         updateStudio(before)
         before.filter { now[it.id] != it }.forEach { refreshThumb(it) }
+        syncCurrent()
     }
+
+    /**
+     * If a Studio action changed the photo that is loaded in the editor, load its new edits
+     * so a later change (e.g. applying a recipe) doesn't bring back the old ones.
+     */
+    private fun syncCurrent() {
+        val id = currentId ?: return
+        if (source == null) return
+        val item = studio.firstOrNull { it.id == id } ?: return
+        val p = item.params ?: EditParams()
+        if (p == params) return
+        saveJob?.cancel()
+        params = p
+        committed = p
+        undoStack.clear(); redoStack.clear(); updateUndo()
+        requestRender(); renderThumbs()
+    }
+
+    /** The photos Paste will change: the selection, without the photo the edits came from. */
+    val pasteTargets: Set<Long>
+        get() {
+            val from = clipboard?.fromId
+            val t = if (from == null) selection else selection - from
+            return t.ifEmpty { selection }
+        }
 
     fun pasteToSelection(parts: Set<PastePart>) {
         val c = clipboard ?: return
-        val targets = selection
+        val targets = pasteTargets
         if (targets.isEmpty() || parts.isEmpty()) return
         val before = studio
         val updated = studio.map { item ->
@@ -608,6 +661,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         updateStudio(updated)
         updated.filter { it.id in targets }.forEach { refreshThumb(it) }
         clearSelection()
+        syncCurrent()
         justPasted = targets
         pastedJob?.cancel()
         pastedJob = viewModelScope.launch { delay(4000); justPasted = emptySet() }
@@ -622,6 +676,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         updateStudio(updated)
         updated.filter { it.id in targets }.forEach { refreshThumb(it) }
         clearSelection()
+        syncCurrent()
         offerUndo("Reset ${targets.size} photo" + if (targets.size == 1) "" else "s", before)
     }
 
@@ -633,6 +688,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         targets.forEach { id ->
             studioThumbJobs.remove(id)?.cancel()
             studioThumbs.remove(id)
+            thumbOrder.remove(id)
             studioMissing.remove(id)
             viewModelScope.launch(Dispatchers.IO) { studioStore.deleteThumb(id) }
         }
@@ -673,6 +729,8 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
 
     companion object {
         const val STUDIO_THUMB_EDGE = 360
+        /** ~0.4 MB each: about 60 MB at most, whatever the size of the Studio. */
+        const val MAX_THUMBS_IN_MEMORY = 150
         /** Preview long edge: sharp on phones and foldables, fast enough on low-end chips. */
         const val PREVIEW_EDGE = 1440
         const val THUMB_EDGE = 200

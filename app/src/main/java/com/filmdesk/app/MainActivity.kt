@@ -27,6 +27,12 @@ class MainActivity : ComponentActivity() {
         setContent { FilmDeskApp(vm) }
     }
 
+    override fun onStop() {
+        super.onStop()
+        // Don't lose the last edit if the app is closed right after it.
+        vm.flushSave()
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         handleIntent(intent)

@@ -1,5 +1,6 @@
 package com.filmdesk.app.ui
 
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material.icons.filled.MoreVert
@@ -121,12 +122,13 @@ private fun EditorTopBar(vm: EditorViewModel) {
     var showSave by remember { mutableStateOf(false) }
     var showPaste by remember { mutableStateOf(false) }
     var menu by remember { mutableStateOf(false) }
-    val btn = Modifier.size(44.dp)
+    // Sized to fit narrow screens such as the Fold cover display (~344 dp).
+    val btn = Modifier.size(40.dp)
     Row(
-        Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 4.dp),
+        Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        IconButton(onClick = { vm.back() }) {
+        IconButton(onClick = { vm.back() }, modifier = Modifier.size(44.dp)) {
             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = FD.Text)
         }
         Spacer(Modifier.weight(1f))
@@ -159,8 +161,9 @@ private fun EditorTopBar(vm: EditorViewModel) {
             onClick = { vm.navigate(Screen.Export) },
             enabled = vm.hasImage,
             colors = ButtonDefaults.buttonColors(containerColor = FD.Amber, contentColor = FD.OnAmber),
-            modifier = Modifier.padding(end = 8.dp),
-        ) { Text("Export", fontWeight = FontWeight.SemiBold) }
+            contentPadding = PaddingValues(horizontal = 12.dp),
+            modifier = Modifier.padding(start = 2.dp, end = 4.dp).height(36.dp),
+        ) { Text("Export", fontWeight = FontWeight.SemiBold, fontSize = 13.sp, maxLines = 1) }
     }
 
     val clip = vm.clipboard
