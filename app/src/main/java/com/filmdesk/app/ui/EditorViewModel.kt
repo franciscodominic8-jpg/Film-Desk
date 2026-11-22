@@ -451,7 +451,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
 
     // ----------------------------------------------------------- studio ops
 
-    private fun setStudio(list: List<StudioItem>) {
+    private fun updateStudio(list: List<StudioItem>) {
         studio = list
         val snapshot = list
         viewModelScope.launch(Dispatchers.IO) { synchronized(studioStore) { studioStore.save(snapshot) } }
@@ -472,7 +472,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
         if (fresh.isNotEmpty()) {
-            setStudio(fresh + studio)
+            updateStudio(fresh + studio)
             fresh.forEach { refreshThumb(it) }
         }
         if (!quiet) message = when (fresh.size) {
@@ -535,7 +535,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         val item = studio.firstOrNull { it.id == id } ?: return
         if (item.params == stored) return
         val updated = item.copy(params = stored)
-        setStudio(studio.map { if (it.id == id) updated else it })
+        updateStudio(studio.map { if (it.id == id) updated else it })
         refreshThumb(updated)
     }
 
@@ -590,7 +590,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         val before = studioUndo ?: return
         studioUndo = null
         val now = studio.associateBy { it.id }
-        setStudio(before)
+        updateStudio(before)
         before.filter { now[it.id] != it }.forEach { refreshThumb(it) }
     }
 
@@ -605,7 +605,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
                 item.copy(params = p.takeIf { it != EditParams() })
             }
         }
-        setStudio(updated)
+        updateStudio(updated)
         updated.filter { it.id in targets }.forEach { refreshThumb(it) }
         clearSelection()
         justPasted = targets
@@ -619,7 +619,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         if (targets.isEmpty()) return
         val before = studio
         val updated = studio.map { if (it.id in targets) it.copy(params = null) else it }
-        setStudio(updated)
+        updateStudio(updated)
         updated.filter { it.id in targets }.forEach { refreshThumb(it) }
         clearSelection()
         offerUndo("Reset ${targets.size} photo" + if (targets.size == 1) "" else "s", before)
@@ -629,7 +629,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         val targets = selection
         if (targets.isEmpty()) return
         val before = studio
-        setStudio(studio.filterNot { it.id in targets })
+        updateStudio(studio.filterNot { it.id in targets })
         targets.forEach { id ->
             studioThumbJobs.remove(id)?.cancel()
             studioThumbs.remove(id)
