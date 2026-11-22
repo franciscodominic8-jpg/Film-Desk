@@ -7,6 +7,7 @@ import com.filmdesk.app.model.EditParams
 import com.filmdesk.app.model.FILM_SIMS
 import com.filmdesk.app.model.WB_PRESETS
 import com.filmdesk.app.model.WbType
+import com.filmdesk.app.model.IDENTITY_CURVE
 import com.filmdesk.app.model.curveLut
 import com.filmdesk.app.model.isIdentityCurve
 import com.filmdesk.app.model.effectiveTone
@@ -99,6 +100,35 @@ object ImageEngine {
             if (cw != w || ch != h) bmp = Bitmap.createBitmap(bmp, (w - cw) / 2, (h - ch) / 2, cw, ch)
         }
         return bmp
+    }
+
+    /**
+     * Colour of a small area exactly as it enters the curves (film look, white balance and
+     * tone applied; curves, soft clip and later colour steps not yet), like Resolve's
+     * curve eyedropper. [geoSource] must already have crop/rotation applied.
+     */
+    suspend fun samplePreCurve(geoSource: Bitmap, p: EditParams, stats: ImageStats, fx: Float, fy: Float): FloatArray {
+        val cx = (fx * geoSource.width).toInt().coerceIn(0, geoSource.width - 1)
+        val cy = (fy * geoSource.height).toInt().coerceIn(0, geoSource.height - 1)
+        val x0 = (cx - 2).coerceIn(0, max(0, geoSource.width - 5))
+        val y0 = (cy - 2).coerceIn(0, max(0, geoSource.height - 5))
+        val cw = min(5, geoSource.width - x0)
+        val chh = min(5, geoSource.height - y0)
+        val crop = Bitmap.createBitmap(geoSource, x0, y0, cw, chh)
+        val pre = p.copy(
+            curveY = IDENTITY_CURVE, curveR = IDENTITY_CURVE, curveG = IDENTITY_CURVE, curveB = IDENTITY_CURVE,
+            softLow = 0, softHigh = 100, softLS = 0,
+            saturation = 0, vibrance = 0, color = 0, colorChrome = 0, colorChromeBlue = 0,
+            hslHue = List(8) { 0 }, hslSat = List(8) { 0 }, hslLum = List(8) { 0 },
+            fade = 0, vignette = 0, grain = 0, aspect = 0, rotation = 0, flipH = false,
+        )
+        val out = render(crop, pre, stats, detail = false)
+        val px = IntArray(out.width * out.height)
+        out.getPixels(px, 0, out.width, 0, 0, out.width, out.height)
+        var r = 0f; var g = 0f; var b = 0f
+        for (c in px) { r += (c shr 16) and 255; g += (c shr 8) and 255; b += c and 255 }
+        val n = px.size * 255f
+        return floatArrayOf(r / n, g / n, b / n)
     }
 
     /** Renders [source] with [p]. Safe to call from any coroutine; cancellable between stages. */

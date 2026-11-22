@@ -36,6 +36,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -90,6 +91,8 @@ fun CurvePanel(vm: EditorViewModel) {
     var menuOpen by remember { mutableStateOf(false) }
     val p = vm.params
     val points = p.curve(channel)
+    // Leaving the Curve panel turns the eyedropper off, so hold-to-compare works again.
+    DisposableEffect(Unit) { onDispose { vm.pickerOff() } }
 
     Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         // Edit row: link · Y R G B · eyedropper · menu
