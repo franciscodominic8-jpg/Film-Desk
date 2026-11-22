@@ -37,6 +37,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -74,7 +75,13 @@ fun LibraryScreen(vm: EditorViewModel) {
     val perms = remember { galleryPermissions() }
     fun hasAccess() = perms.any { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED }
 
+    // Android 14+: the user may have allowed only some photos.
+    fun partialOnly() = Build.VERSION.SDK_INT >= 34 &&
+        ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_IMAGES) != PackageManager.PERMISSION_GRANTED &&
+        ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED) == PackageManager.PERMISSION_GRANTED
+
     var granted by remember { mutableStateOf(hasAccess()) }
+    var partial by remember { mutableStateOf(partialOnly()) }
     var photos by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
     var refresh by remember { mutableStateOf(0) }
 
@@ -83,6 +90,7 @@ fun LibraryScreen(vm: EditorViewModel) {
     }
     val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         granted = hasAccess()
+        partial = partialOnly()
         refresh++
     }
 
@@ -90,7 +98,7 @@ fun LibraryScreen(vm: EditorViewModel) {
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     DisposableEffect(lifecycle) {
         val obs = LifecycleEventObserver { _, e ->
-            if (e == Lifecycle.Event.ON_RESUME) { granted = hasAccess(); refresh++ }
+            if (e == Lifecycle.Event.ON_RESUME) { granted = hasAccess(); partial = partialOnly(); refresh++ }
         }
         lifecycle.addObserver(obs)
         onDispose { lifecycle.removeObserver(obs) }
@@ -159,9 +167,25 @@ fun LibraryScreen(vm: EditorViewModel) {
                         colors = ButtonDefaults.buttonColors(containerColor = FD.Amber, contentColor = FD.OnAmber),
                     ) { Text("Allow photo access") }
                 }
-            } else if (photos.isEmpty()) {
-                Text("No photos found yet.", color = FD.Muted, modifier = Modifier.padding(24.dp))
             } else {
+                if (partial) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            "Showing only the photos you allowed.",
+                            color = FD.Muted, fontSize = 12.sp, modifier = Modifier.weight(1f),
+                        )
+                        TextButton(onClick = { permLauncher.launch(perms) }) {
+                            Text("Select more", color = FD.Amber)
+                        }
+                    }
+                }
+            }
+            if (granted && photos.isEmpty()) {
+                Text("No photos found yet.", color = FD.Muted, modifier = Modifier.padding(24.dp))
+            } else if (granted) {
                 Row(Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) {
                     Text("Recent", color = FD.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                     Text("${photos.size} photos", color = FD.Muted, fontSize = 12.sp, fontFamily = FD.Mono)

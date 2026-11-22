@@ -113,3 +113,28 @@ fun hslSliders(band: Int): List<ProSlider> = listOf(
     ProSlider("Saturation", -100, 100, { it.hslSat[band] }, { p, v -> p.copy(hslSat = p.hslSat.toMutableList().also { l -> l[band] = v }) }),
     ProSlider("Luminance", -100, 100, { it.hslLum[band] }, { p, v -> p.copy(hslLum = p.hslLum.toMutableList().also { l -> l[band] = v }) }),
 )
+
+/**
+ * Why a setting currently has no effect (null when it is active). The Q menu shows the
+ * value dimmed and explains this instead of offering controls, like the camera does.
+ */
+fun QSetting.lockReason(p: EditParams): String? = when (id) {
+    "dr", "hl", "sh" ->
+        if (p.dRangePriority > 0) "Set automatically by D-Range Priority. Turn D-Range Priority off to change it." else null
+    "mwc", "mmg" ->
+        if (!FILM_SIMS[p.sim].isMono) "Only used by black & white film simulations (Acros, Monochrome, Sepia)." else null
+    else -> null
+}
+
+/** The value as it is really applied (e.g. D-Range Priority overrides DR, Highlight, Shadow). */
+fun QSetting.effectiveDisplay(p: EditParams): String {
+    if (p.dRangePriority > 0 && (id == "dr" || id == "hl" || id == "sh")) {
+        val t = p.effectiveTone()
+        return when (id) {
+            "dr" -> DR_OPTIONS[t.dr]
+            "hl" -> signed(t.highlight, 0.5f)
+            else -> signed(t.shadow, 0.5f)
+        }
+    }
+    return display(p)
+}

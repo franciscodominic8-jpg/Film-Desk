@@ -136,6 +136,15 @@ data class EditParams(
     }
 }
 
+/** Dynamic range / highlight / shadow actually used, after D-Range Priority. */
+data class Tone(val dr: Int, val highlight: Float, val shadow: Float)
+
+fun EditParams.effectiveTone(): Tone = when (dRangePriority) {
+    1, 3 -> Tone(maxOf(dynamicRange.coerceIn(0, 2), 1), -1f, -1f) // Weak / Auto
+    2 -> Tone(2, -2f, -2f)                                         // Strong
+    else -> Tone(dynamicRange.coerceIn(0, 2), highlight, shadow)
+}
+
 // ---------- Formatting helpers shared by the UI and export ----------
 
 fun signed(v: Float, step: Float = 1f): String {
@@ -168,8 +177,11 @@ fun EditParams.summary(): String = buildString {
     val wbLabel = if (WB_PRESETS[wb].type == WbType.CUSTOM) "${kelvin}K" else WB_PRESETS[wb].label.uppercase()
     append("  WB ").append(wbLabel)
     if (wbShiftR != 0 || wbShiftB != 0) append(" R").append(signed(wbShiftR.toFloat())).append(" B").append(signed(wbShiftB.toFloat()))
-    append("  ").append(DR_OPTIONS[dynamicRange])
-    append("  H").append(signed(highlight, 0.5f)).append(" S").append(signed(shadow, 0.5f))
+    val tone = effectiveTone()
+    append("  ").append(DR_OPTIONS[tone.dr])
+    if (dRangePriority > 0) append(" DRP-").append(DRP_OPTIONS[dRangePriority].uppercase())
+    append("  H").append(signed(tone.highlight, 0.5f)).append(" S").append(signed(tone.shadow, 0.5f))
+    if (FILM_SIMS[sim].isMono && (monoWC != 0 || monoMG != 0)) append("  WC").append(signed(monoWC.toFloat())).append(" MG").append(signed(monoMG.toFloat()))
     if (color != 0) append("  COLOR ").append(signed(color.toFloat()))
     if (exposureThirds != 0) append("  EV ").append(formatThirds(exposureThirds))
 }

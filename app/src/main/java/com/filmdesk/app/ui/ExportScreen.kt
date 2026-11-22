@@ -66,6 +66,17 @@ fun ExportScreen(vm: EditorViewModel) {
     val writeLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
         if (ok) vm.export(share = false) else vm.message = "Storage permission is needed to save on this Android version"
     }
+    // Android 10+: reading GPS from the original needs ACCESS_MEDIA_LOCATION.
+    val locationLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
+        vm.exportSettings = vm.exportSettings.copy(keepLocation = ok)
+        if (!ok) vm.message = "Location permission denied — location won't be copied"
+    }
+    fun setKeepLocation(on: Boolean) {
+        val needsPermission = on && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_MEDIA_LOCATION) != PackageManager.PERMISSION_GRANTED
+        if (needsPermission) locationLauncher.launch(Manifest.permission.ACCESS_MEDIA_LOCATION)
+        else vm.exportSettings = vm.exportSettings.copy(keepLocation = on)
+    }
     fun save() {
         if (needsWritePermission &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED
@@ -144,6 +155,13 @@ fun ExportScreen(vm: EditorViewModel) {
                     "Embed recipe in metadata", "Re-import the exact look later (JPEG only)",
                     s.embedRecipe && s.format == ExportFormat.JPEG,
                     { vm.exportSettings = vm.exportSettings.copy(embedRecipe = it) },
+                    enabled = s.format == ExportFormat.JPEG,
+                )
+                HorizontalDivider(color = FD.Line)
+                ToggleRow(
+                    "Keep location", "Copy GPS from the original photo (camera info is always kept, JPEG only)",
+                    s.keepLocation && s.format == ExportFormat.JPEG,
+                    { setKeepLocation(it) },
                     enabled = s.format == ExportFormat.JPEG,
                 )
             }

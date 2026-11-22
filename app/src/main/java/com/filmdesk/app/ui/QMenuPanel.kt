@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -49,6 +50,8 @@ import androidx.compose.ui.unit.sp
 import com.filmdesk.app.model.EditParams
 import com.filmdesk.app.model.QSetting
 import com.filmdesk.app.model.Q_SETTINGS
+import com.filmdesk.app.model.effectiveDisplay
+import com.filmdesk.app.model.lockReason
 import com.filmdesk.app.ui.theme.FD
 import kotlinx.coroutines.delay
 
@@ -100,6 +103,7 @@ private fun QTile(s: QSetting, p: EditParams, selected: Boolean, modifier: Modif
     // The open tile loses its bottom corners so it joins the editor below it.
     val shape = if (selected) RoundedCornerShape(topStart = 10.dp, topEnd = 10.dp) else RoundedCornerShape(10.dp)
     val changed = !s.isDefault(p)
+    val locked = s.lockReason(p) != null
     Column(
         modifier
             .height(60.dp)
@@ -110,13 +114,26 @@ private fun QTile(s: QSetting, p: EditParams, selected: Boolean, modifier: Modif
             .padding(horizontal = 7.dp, vertical = 6.dp),
         verticalArrangement = Arrangement.SpaceBetween,
     ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                s.label.uppercase(), color = FD.Muted, fontSize = 9.sp, letterSpacing = 0.3.sp,
+                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false),
+            )
+            if (locked) {
+                Icon(
+                    Icons.Filled.Lock, contentDescription = "Not active",
+                    tint = FD.Muted, modifier = Modifier.padding(start = 2.dp).size(10.dp),
+                )
+            }
+        }
         Text(
-            s.label.uppercase(), color = FD.Muted, fontSize = 9.sp, letterSpacing = 0.3.sp,
-            maxLines = 1, overflow = TextOverflow.Ellipsis,
-        )
-        Text(
-            s.display(p), fontFamily = FD.Mono, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
-            color = when { selected -> FD.Amber; changed -> FD.AmberLight; else -> FD.Text },
+            s.effectiveDisplay(p), fontFamily = FD.Mono, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+            color = when {
+                locked -> FD.Muted
+                selected -> FD.Amber
+                changed -> FD.AmberLight
+                else -> FD.Text
+            },
             maxLines = 1, overflow = TextOverflow.Ellipsis,
         )
     }
@@ -152,7 +169,18 @@ private fun InlineEditor(setting: QSetting, column: Int, columns: Int, vm: Edito
             Text(setting.label, color = FD.Text, fontSize = 15.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
             Text(setting.hint, color = FD.Muted, fontSize = 11.sp, textAlign = TextAlign.End)
         }
-        when (setting) {
+        val reason = setting.lockReason(vm.params)
+        if (reason != null) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.Lock, contentDescription = null, tint = FD.Muted, modifier = Modifier.size(16.dp))
+                Text(
+                    "Now: ${setting.effectiveDisplay(vm.params)}",
+                    color = FD.Text, fontFamily = FD.Mono, fontSize = 14.sp,
+                    modifier = Modifier.padding(start = 8.dp),
+                )
+            }
+            Text(reason, color = FD.Muted, fontSize = 13.sp)
+        } else when (setting) {
             is QSetting.Choice -> FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -164,8 +192,10 @@ private fun InlineEditor(setting: QSetting, column: Int, columns: Int, vm: Edito
             is QSetting.Stepper -> StepperEditor(setting, vm)
         }
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            TextButton(onClick = { vm.change(resetOne(setting, vm.params)) }) {
-                Text("Reset", color = FD.Muted)
+            if (reason == null) {
+                TextButton(onClick = { vm.change(resetOne(setting, vm.params)) }) {
+                    Text("Reset", color = FD.Muted)
+                }
             }
             Spacer(Modifier.weight(1f))
             Button(

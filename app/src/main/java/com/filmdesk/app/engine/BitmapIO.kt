@@ -121,7 +121,11 @@ object BitmapIO {
     }
 
     /** Saves to Pictures/FilmDesk. Returns the new image's Uri, or null on failure. */
-    fun saveToGallery(context: Context, bmp: Bitmap, format: ExportFormat, quality: Int, recipeJson: String?): Uri? {
+    fun saveToGallery(
+        context: Context, bmp: Bitmap, format: ExportFormat, quality: Int, recipeJson: String?,
+        source: Uri? = null, keepLocation: Boolean = false,
+    ): Uri? {
+        val original = if (format == ExportFormat.JPEG && source != null) readOriginalExif(context, source, keepLocation) else null
         val name = "FilmDesk_${System.currentTimeMillis()}.${format.ext}"
         val compress = if (format == ExportFormat.PNG) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG
         val cr = context.contentResolver
@@ -136,9 +140,9 @@ object BitmapIO {
             try {
                 val ok = cr.openOutputStream(uri)?.use { bmp.compress(compress, quality, it) } ?: false
                 if (!ok) { cr.delete(uri, null, null); return null }
-                if (recipeJson != null && format == ExportFormat.JPEG) {
+                if (format == ExportFormat.JPEG && (recipeJson != null || original != null)) {
                     try {
-                        cr.openFileDescriptor(uri, "rw")?.use { writeExif(ExifInterface(it.fileDescriptor), recipeJson) }
+                        cr.openFileDescriptor(uri, "rw")?.use { writeExif(ExifInterface(it.fileDescriptor), recipeJson, original, bmp) }
                     } catch (_: Exception) { /* metadata is optional */ }
                 }
                 values.clear()
@@ -156,27 +160,82 @@ object BitmapIO {
             val file = File(dir, name)
             val ok = FileOutputStream(file).use { bmp.compress(compress, quality, it) }
             if (!ok) return null
-            if (recipeJson != null && format == ExportFormat.JPEG) {
-                try { writeExif(ExifInterface(file.absolutePath), recipeJson) } catch (_: Exception) { }
+            if (format == ExportFormat.JPEG && (recipeJson != null || original != null)) {
+                try { writeExif(ExifInterface(file.absolutePath), recipeJson, original, bmp) } catch (_: Exception) { }
             }
             MediaScannerConnection.scanFile(context, arrayOf(file.absolutePath), arrayOf(format.mime), null)
             Uri.fromFile(file)
         }
     }
 
-    private fun writeExif(exif: ExifInterface, recipeJson: String) {
+    /** Camera details worth keeping on the edited copy. */
+    private val CAMERA_TAGS = listOf(
+        ExifInterface.TAG_DATETIME_ORIGINAL, ExifInterface.TAG_DATETIME_DIGITIZED, ExifInterface.TAG_DATETIME,
+        ExifInterface.TAG_OFFSET_TIME_ORIGINAL, ExifInterface.TAG_OFFSET_TIME,
+        ExifInterface.TAG_SUBSEC_TIME_ORIGINAL,
+        ExifInterface.TAG_MAKE, ExifInterface.TAG_MODEL, ExifInterface.TAG_LENS_MAKE, ExifInterface.TAG_LENS_MODEL,
+        ExifInterface.TAG_F_NUMBER, ExifInterface.TAG_EXPOSURE_TIME, ExifInterface.TAG_PHOTOGRAPHIC_SENSITIVITY,
+        ExifInterface.TAG_FOCAL_LENGTH, ExifInterface.TAG_FOCAL_LENGTH_IN_35MM_FILM, ExifInterface.TAG_EXPOSURE_BIAS_VALUE,
+        ExifInterface.TAG_EXPOSURE_PROGRAM, ExifInterface.TAG_METERING_MODE, ExifInterface.TAG_FLASH,
+        ExifInterface.TAG_WHITE_BALANCE, ExifInterface.TAG_ARTIST, ExifInterface.TAG_COPYRIGHT,
+    )
+    private val GPS_TAGS = listOf(
+        ExifInterface.TAG_GPS_LATITUDE, ExifInterface.TAG_GPS_LATITUDE_REF,
+        ExifInterface.TAG_GPS_LONGITUDE, ExifInterface.TAG_GPS_LONGITUDE_REF,
+        ExifInterface.TAG_GPS_ALTITUDE, ExifInterface.TAG_GPS_ALTITUDE_REF,
+        ExifInterface.TAG_GPS_TIMESTAMP, ExifInterface.TAG_GPS_DATESTAMP,
+    )
+
+    /**
+     * Reads the original photo's camera details (and GPS only if [keepLocation]).
+     * On Android 10+ location is hidden unless the app has ACCESS_MEDIA_LOCATION and asks
+     * for the original file; if that isn't possible, the location is simply not copied.
+     */
+    fun readOriginalExif(context: Context, source: Uri, keepLocation: Boolean): Map<String, String>? {
+        val cr = context.contentResolver
+        val target = if (keepLocation && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            try { MediaStore.setRequireOriginal(source) } catch (_: Exception) { source }
+        } else source
+        val exif = try {
+            cr.openInputStream(target)?.use { ExifInterface(it) }
+        } catch (_: Exception) {
+            if (target != source) try { cr.openInputStream(source)?.use { ExifInterface(it) } } catch (_: Exception) { null } else null
+        } ?: return null
+        val tags = if (keepLocation) CAMERA_TAGS + GPS_TAGS else CAMERA_TAGS
+        val out = LinkedHashMap<String, String>()
+        for (t in tags) exif.getAttribute(t)?.let { out[t] = it }
+        return out
+    }
+
+    private fun writeExif(exif: ExifInterface, recipeJson: String?, original: Map<String, String>?, bmp: Bitmap) {
+        original?.forEach { (k, v) -> exif.setAttribute(k, v) }
+        // Pixels are already rotated/cropped, so describe them as they are.
+        exif.setAttribute(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL.toString())
+        exif.setAttribute(ExifInterface.TAG_PIXEL_X_DIMENSION, bmp.width.toString())
+        exif.setAttribute(ExifInterface.TAG_PIXEL_Y_DIMENSION, bmp.height.toString())
         exif.setAttribute(ExifInterface.TAG_SOFTWARE, "Film Desk")
-        exif.setAttribute(ExifInterface.TAG_USER_COMMENT, "FilmDeskRecipe:$recipeJson")
+        if (recipeJson != null) exif.setAttribute(ExifInterface.TAG_USER_COMMENT, "FilmDeskRecipe:$recipeJson")
         exif.saveAttributes()
     }
 
     /** Writes a temporary copy and opens the Android share sheet. */
-    fun share(context: Context, bmp: Bitmap, format: ExportFormat, quality: Int) {
+    fun share(
+        context: Context, bmp: Bitmap, format: ExportFormat, quality: Int,
+        source: Uri? = null, recipeJson: String? = null, keepLocation: Boolean = false,
+    ) {
         val dir = File(context.cacheDir, "shared").apply { mkdirs() }
-        dir.listFiles()?.forEach { it.delete() }
+        // Only clear old copies (over an hour), so a share that's still being read isn't broken.
+        val cutoff = System.currentTimeMillis() - 60 * 60 * 1000L
+        dir.listFiles()?.forEach { if (it.lastModified() < cutoff) it.delete() }
         val file = File(dir, "FilmDesk_${System.currentTimeMillis()}.${format.ext}")
         val compress = if (format == ExportFormat.PNG) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG
         FileOutputStream(file).use { bmp.compress(compress, quality, it) }
+        if (format == ExportFormat.JPEG) {
+            val original = source?.let { readOriginalExif(context, it, keepLocation) }
+            if (original != null || recipeJson != null) {
+                try { writeExif(ExifInterface(file.absolutePath), recipeJson, original, bmp) } catch (_: Exception) { }
+            }
+        }
         val uri = FileProvider.getUriForFile(context, context.packageName + ".fileprovider", file)
         val send = Intent(Intent.ACTION_SEND).apply {
             type = format.mime

@@ -175,7 +175,7 @@ private fun PreviewArea(vm: EditorViewModel, modifier: Modifier) {
             },
         contentAlignment = Alignment.Center,
     ) {
-        val bmp: Bitmap? = if (showOriginal) vm.source else (vm.preview ?: vm.source)
+        val bmp: Bitmap? = if (showOriginal) (vm.original ?: vm.source) else (vm.preview ?: vm.source)
         if (vm.loading || bmp == null) {
             CircularProgressIndicator(color = FD.Amber)
         } else {

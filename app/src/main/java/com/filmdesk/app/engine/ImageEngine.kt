@@ -7,6 +7,7 @@ import com.filmdesk.app.model.EditParams
 import com.filmdesk.app.model.FILM_SIMS
 import com.filmdesk.app.model.WB_PRESETS
 import com.filmdesk.app.model.WbType
+import com.filmdesk.app.model.effectiveTone
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -157,16 +158,11 @@ object ImageEngine {
             gG = wb[1] * ev * (1f - 0.2f * tn)
             gB = wb[2] * ev * (1f - 0.3f * t) * (1f + 0.025f * p.wbShiftB)
 
-            var d = p.dynamicRange.coerceIn(0, 2)
-            var h = p.highlight
-            var s = p.shadow
-            when (p.dRangePriority) {
-                1, 3 -> { d = max(d, 1); h = -1f; s = -1f }
-                2 -> { d = 2; h = -2f; s = -2f }
-            }
+            val tone = p.effectiveTone()
+            val d = tone.dr
             dr = d
-            hl = h
-            sh = s
+            hl = tone.highlight
+            sh = tone.shadow
             knee = when (d) { 1 -> 0.75f; 2 -> 0.6f; else -> 1f }
             if (d > 0) {
                 val range = 1f + d * 0.5f

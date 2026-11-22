@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.net.Uri
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
@@ -39,6 +40,8 @@ data class ExportSettings(
     val size: Int = 0,
     val border: Boolean = false,
     val embedRecipe: Boolean = true,
+    /** Copy GPS location from the original photo (off by default for privacy). */
+    val keepLocation: Boolean = false,
 )
 
 class EditorViewModel(app: Application) : AndroidViewModel(app) {
@@ -51,10 +54,14 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
 
     var source by mutableStateOf<Bitmap?>(null); private set
     var preview by mutableStateOf<Bitmap?>(null); private set
+    /** The unedited photo with the current crop/rotation, for hold-to-compare. */
+    var original by mutableStateOf<Bitmap?>(null); private set
     var loading by mutableStateOf(false); private set
     var rendering by mutableStateOf(false); private set
     var params by mutableStateOf(EditParams()); private set
     val simThumbs = mutableStateListOf<Bitmap?>()
+    /** Small preview of each recipe's own look on the current photo, by recipe id. */
+    val recipeThumbs = mutableStateMapOf<Long, Bitmap>()
 
     var recipes by mutableStateOf<List<Recipe>>(emptyList()); private set
     var message by mutableStateOf<String?>(null)
@@ -73,6 +80,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
     private val redoStack = ArrayDeque<EditParams>()
     private var renderJob: Job? = null
     private var thumbJob: Job? = null
+    private var recipeThumbJob: Job? = null
 
     init {
         recipes = store.load()
@@ -103,6 +111,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
     fun openImage(uri: Uri) {
         loading = true
         preview = null
+        original = null
         navigate(Screen.Editor)
         viewModelScope.launch {
             val ctx = getApplication<Application>()
@@ -131,6 +140,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
             loading = false
             requestRender()
             renderThumbs()
+            renderRecipeThumbs()
         }
     }
 
@@ -141,10 +151,21 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         renderJob?.cancel()
         renderJob = viewModelScope.launch {
             rendering = true
-            delay(12) // coalesce rapid slider moves
-            val out = withContext(Dispatchers.Default) { ImageEngine.render(src, p, st) }
-            preview = out
-            rendering = false
+            try {
+                delay(12) // coalesce rapid slider moves
+                val geo = withContext(Dispatchers.Default) { ImageEngine.applyGeometry(src, p) }
+                val out = withContext(Dispatchers.Default) { ImageEngine.render(src, p, st) }
+                original = geo
+                preview = out
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: OutOfMemoryError) {
+                message = "Not enough memory to update the preview"
+            } catch (e: Exception) {
+                message = "Preview failed: ${e.message ?: "unknown error"}"
+            } finally {
+                if (coroutineContext[Job] == renderJob) rendering = false
+            }
         }
     }
 
@@ -155,9 +176,38 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         thumbJob?.cancel()
         thumbJob = viewModelScope.launch {
             delay(150)
-            for (i in FILM_SIMS.indices) {
-                val bmp = withContext(Dispatchers.Default) { ImageEngine.render(src, base.copy(sim = i), st, detail = false) }
-                simThumbs[i] = bmp
+            try {
+                for (i in FILM_SIMS.indices) {
+                    val bmp = withContext(Dispatchers.Default) { ImageEngine.render(src, base.copy(sim = i), st, detail = false) }
+                    simThumbs[i] = bmp
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                // Thumbnails are optional; keep the swatch colours if they can't be made.
+            }
+        }
+    }
+
+    /** Renders every recipe's own look on the current photo (not the current settings). */
+    private fun renderRecipeThumbs() {
+        val src = thumbSource ?: return
+        val st = stats
+        val list = recipes
+        recipeThumbJob?.cancel()
+        recipeThumbJob = viewModelScope.launch {
+            delay(300)
+            try {
+                for (r in list) {
+                    val bmp = withContext(Dispatchers.Default) {
+                        ImageEngine.render(src, r.params.withoutGeometry(), st, detail = false)
+                    }
+                    recipeThumbs[r.id] = bmp
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                // Optional: cards fall back to a colour swatch.
             }
         }
     }
@@ -215,6 +265,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         val r = Recipe(System.currentTimeMillis(), name.trim().ifEmpty { "My recipe" }.take(60), params.withoutGeometry())
         recipes = listOf(r) + recipes
         store.save(recipes)
+        renderRecipeThumbs()
         message = "Saved recipe “${r.name}”"
     }
 
@@ -230,6 +281,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
     fun deleteRecipe(r: Recipe) {
         recipes = recipes.filterNot { it.id == r.id }
         store.save(recipes)
+        recipeThumbs.remove(r.id)
     }
 
     fun importRecipe(text: String?) {
@@ -240,6 +292,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         }
         recipes = listOf(r) + recipes
         store.save(recipes)
+        renderRecipeThumbs()
         message = "Imported “${r.name}”"
     }
 
@@ -263,9 +316,9 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
                 if (s.border) out = withContext(Dispatchers.Default) { BitmapIO.addBorder(out, p.caption()) }
                 val json = if (s.embedRecipe && s.format == ExportFormat.JPEG) p.toJson().toString() else null
                 if (share) {
-                    withContext(Dispatchers.IO) { BitmapIO.share(ctx, out, s.format, s.quality) }
+                    withContext(Dispatchers.IO) { BitmapIO.share(ctx, out, s.format, s.quality, uri, json, s.keepLocation) }
                 } else {
-                    withContext(Dispatchers.IO) { BitmapIO.saveToGallery(ctx, out, s.format, s.quality, json) }
+                    withContext(Dispatchers.IO) { BitmapIO.saveToGallery(ctx, out, s.format, s.quality, json, uri, s.keepLocation) }
                         ?: error("Couldn't save the photo")
                     message = "Saved to Pictures/FilmDesk (${out.width}×${out.height})"
                 }

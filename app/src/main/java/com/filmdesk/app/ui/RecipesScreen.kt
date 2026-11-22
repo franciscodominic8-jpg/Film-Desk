@@ -89,7 +89,7 @@ fun RecipesScreen(vm: EditorViewModel) {
             items(vm.recipes, key = { it.id }) { r ->
                 RecipeCard(
                     r,
-                    thumb = vm.simThumbs.getOrNull(r.params.sim),
+                    thumb = vm.recipeThumbs[r.id],
                     onApply = { vm.applyRecipe(r) },
                     onShare = {
                         val send = Intent(Intent.ACTION_SEND).apply {
