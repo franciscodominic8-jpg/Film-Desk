@@ -56,6 +56,31 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
     var preview by mutableStateOf<Bitmap?>(null); private set
     /** The unedited photo with the current crop/rotation, for hold-to-compare. */
     var original by mutableStateOf<Bitmap?>(null); private set
+    /** Histogram of the current preview, shown behind the tone curve. */
+    var histogram by mutableStateOf<ImageEngine.Histogram?>(null); private set
+    /** Curve eyedropper: when on, tapping the preview samples a colour. */
+    var curvePicker by mutableStateOf(false); private set
+    /** Last sampled colour (r, g, b in 0..1), drawn as markers on the curves. */
+    var curveSample by mutableStateOf<FloatArray?>(null); private set
+
+    fun togglePicker() {
+        curvePicker = !curvePicker
+        if (!curvePicker) curveSample = null
+    }
+
+    /** Samples the preview at a position given as fractions (0..1) of the image. */
+    fun sampleAt(fx: Float, fy: Float) {
+        val bmp = preview ?: return
+        val x = (fx * bmp.width).toInt().coerceIn(0, bmp.width - 1)
+        val y = (fy * bmp.height).toInt().coerceIn(0, bmp.height - 1)
+        // Average a small 5×5 area so noise and grain don't throw the reading off.
+        var r = 0f; var g = 0f; var b = 0f; var n = 0
+        for (dy in -2..2) for (dx in -2..2) {
+            val px = bmp.getPixel((x + dx).coerceIn(0, bmp.width - 1), (y + dy).coerceIn(0, bmp.height - 1))
+            r += (px shr 16) and 255; g += (px shr 8) and 255; b += px and 255; n++
+        }
+        curveSample = floatArrayOf(r / n / 255f, g / n / 255f, b / n / 255f)
+    }
     var loading by mutableStateOf(false); private set
     var rendering by mutableStateOf(false); private set
     var params by mutableStateOf(EditParams()); private set
@@ -157,6 +182,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
                 val out = withContext(Dispatchers.Default) { ImageEngine.render(src, p, st) }
                 original = geo
                 preview = out
+                histogram = withContext(Dispatchers.Default) { ImageEngine.histogram(out) }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: OutOfMemoryError) {

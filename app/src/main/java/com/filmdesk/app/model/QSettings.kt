@@ -96,6 +96,7 @@ val PRO_GROUPS: List<ProGroup> = listOf(
         ProSlider("Blacks", -100, 100, { it.blacks }, { p, v -> p.copy(blacks = v) }),
         ProSlider("Fade", 0, 100, { it.fade }, { p, v -> p.copy(fade = v) }),
     )),
+    ProGroup("Curve", emptyList()),
     ProGroup("Color", listOf(
         ProSlider("Temperature", -100, 100, { it.temp }, { p, v -> p.copy(temp = v) }),
         ProSlider("Tint", -100, 100, { it.tint }, { p, v -> p.copy(tint = v) }),

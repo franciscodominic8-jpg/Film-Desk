@@ -5,6 +5,7 @@ import org.json.JSONObject
 import kotlin.math.roundToInt
 
 private val ZERO8: List<Int> = List(8) { 0 }
+private val FULL_MIX: List<Int> = List(4) { 100 }
 
 /** Every setting of an edit. Immutable, so undo/redo is just a stack of these. */
 data class EditParams(
@@ -45,6 +46,20 @@ data class EditParams(
     val hslHue: List<Int> = ZERO8,
     val hslSat: List<Int> = ZERO8,
     val hslLum: List<Int> = ZERO8,
+    // ---- Tone curves (flat x,y point lists, see Curve.kt) ----
+    val curveY: List<Float> = IDENTITY_CURVE,
+    val curveR: List<Float> = IDENTITY_CURVE,
+    val curveG: List<Float> = IDENTITY_CURVE,
+    val curveB: List<Float> = IDENTITY_CURVE,
+    /** Linked (ganged): Y moves R, G, B together. Unlinked: Y changes brightness (luma) only. */
+    val curveLinked: Boolean = true,
+    /** Curve intensity per channel Y, R, G, B: 0..100 (100 = full curve). */
+    val curveMix: List<Int> = FULL_MIX,
+    /** Soft clip: output black level, output white level (0..100), shadow and highlight softness (0..100). */
+    val softLow: Int = 0,
+    val softHigh: Int = 100,
+    val softLS: Int = 0,
+    val softHS: Int = 0,
     // ---- Geometry ----
     val aspect: Int = 0,
     val rotation: Int = 0,
@@ -60,6 +75,9 @@ data class EditParams(
         contrast = contrast, highlights = highlights, shadows = shadows, whites = whites, blacks = blacks,
         temp = temp, tint = tint, vibrance = vibrance, saturation = saturation, fade = fade, vignette = vignette,
         hslHue = hslHue, hslSat = hslSat, hslLum = hslLum,
+        curveY = curveY, curveR = curveR, curveG = curveG, curveB = curveB,
+        curveLinked = curveLinked, curveMix = curveMix,
+        softLow = softLow, softHigh = softHigh, softLS = softLS, softHS = softHS,
         aspect = aspect, rotation = rotation, flipH = flipH,
     )
 
@@ -67,6 +85,8 @@ data class EditParams(
     fun resetPro() = copy(
         contrast = 0, highlights = 0, shadows = 0, whites = 0, blacks = 0, temp = 0, tint = 0,
         vibrance = 0, saturation = 0, fade = 0, vignette = 0, hslHue = ZERO8, hslSat = ZERO8, hslLum = ZERO8,
+        curveY = IDENTITY_CURVE, curveR = IDENTITY_CURVE, curveG = IDENTITY_CURVE, curveB = IDENTITY_CURVE,
+        curveLinked = true, curveMix = FULL_MIX, softLow = 0, softHigh = 100, softLS = 0, softHS = 0,
     )
 
     fun toJson(): JSONObject = JSONObject().apply {
@@ -82,6 +102,11 @@ data class EditParams(
         put("whites", whites); put("blacks", blacks); put("temp", temp); put("tint", tint)
         put("vibrance", vibrance); put("saturation", saturation); put("fade", fade); put("vignette", vignette)
         put("hslHue", JSONArray(hslHue)); put("hslSat", JSONArray(hslSat)); put("hslLum", JSONArray(hslLum))
+        fun curveJson(c: List<Float>) = JSONArray().apply { c.forEach { put(it.toDouble()) } }
+        put("curveY", curveJson(curveY)); put("curveR", curveJson(curveR))
+        put("curveG", curveJson(curveG)); put("curveB", curveJson(curveB))
+        put("curveLinked", curveLinked); put("curveMix", JSONArray(curveMix))
+        put("softLow", softLow); put("softHigh", softHigh); put("softLS", softLS); put("softHS", softHS)
         put("aspect", aspect); put("rotation", rotation); put("flipH", flipH)
     }
 
@@ -90,6 +115,10 @@ data class EditParams(
             fun i(k: String, min: Int, max: Int, def: Int = 0) = o.optInt(k, def).coerceIn(min, max)
             fun f(k: String, min: Float, max: Float, def: Float = 0f) =
                 o.optDouble(k, def.toDouble()).toFloat().let { if (it.isNaN()) def else it.coerceIn(min, max) }
+            fun curve(k: String): List<Float> {
+                val a = o.optJSONArray(k) ?: return IDENTITY_CURVE
+                return sanitizeCurve(List(a.length()) { idx -> a.optDouble(idx, 0.0).toFloat() })
+            }
             fun list(k: String): List<Int> {
                 val a = o.optJSONArray(k) ?: return ZERO8
                 return List(8) { idx -> a.optInt(idx, 0).coerceIn(-100, 100) }
@@ -128,6 +157,11 @@ data class EditParams(
                 fade = i("fade", 0, 100),
                 vignette = i("vignette", -100, 100),
                 hslHue = list("hslHue"), hslSat = list("hslSat"), hslLum = list("hslLum"),
+                curveY = curve("curveY"), curveR = curve("curveR"), curveG = curve("curveG"), curveB = curve("curveB"),
+                curveLinked = o.optBoolean("curveLinked", true),
+                curveMix = o.optJSONArray("curveMix")?.let { a -> List(4) { idx -> a.optInt(idx, 100).coerceIn(0, 100) } } ?: FULL_MIX,
+                softLow = i("softLow", 0, 100, 0), softHigh = i("softHigh", 0, 100, 100),
+                softLS = i("softLS", 0, 100, 0), softHS = i("softHS", 0, 100, 0),
                 aspect = i("aspect", 0, ASPECTS.lastIndex),
                 rotation = (o.optInt("rotation", 0) / 90 * 90).let { ((it % 360) + 360) % 360 },
                 flipH = o.optBoolean("flipH", false),

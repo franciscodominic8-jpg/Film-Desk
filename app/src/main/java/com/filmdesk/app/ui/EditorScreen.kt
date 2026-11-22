@@ -163,15 +163,30 @@ private fun EditorTopBar(vm: EditorViewModel) {
 @Composable
 private fun PreviewArea(vm: EditorViewModel, modifier: Modifier) {
     var showOriginal by remember { mutableStateOf(false) }
+    val picking = vm.curvePicker
+    val imgW = vm.preview?.width ?: 0
+    val imgH = vm.preview?.height ?: 0
     Box(
         modifier
             .background(Color.Black)
-            .pointerInput(Unit) {
-                detectTapGestures(onPress = {
-                    showOriginal = true
-                    tryAwaitRelease()
-                    showOriginal = false
-                })
+            .pointerInput(picking, imgW, imgH) {
+                if (picking && imgW > 0 && imgH > 0) {
+                    // Curve eyedropper: map the tap from the fitted image to the bitmap.
+                    detectTapGestures(onTap = { pos ->
+                        val bw = size.width.toFloat(); val bh = size.height.toFloat()
+                        val scale = minOf(bw / imgW, bh / imgH)
+                        val dw = imgW * scale; val dh = imgH * scale
+                        val fx = (pos.x - (bw - dw) / 2f) / dw
+                        val fy = (pos.y - (bh - dh) / 2f) / dh
+                        if (fx in 0f..1f && fy in 0f..1f) vm.sampleAt(fx, fy)
+                    })
+                } else {
+                    detectTapGestures(onPress = {
+                        showOriginal = true
+                        tryAwaitRelease()
+                        showOriginal = false
+                    })
+                }
             },
         contentAlignment = Alignment.Center,
     ) {
@@ -194,7 +209,7 @@ private fun PreviewArea(vm: EditorViewModel, modifier: Modifier) {
             )
         }
         if (!vm.loading && bmp != null) {
-            Badge("HOLD TO COMPARE", Modifier.align(Alignment.BottomCenter).padding(10.dp))
+            Badge(if (picking) "TAP TO SAMPLE A COLOUR" else "HOLD TO COMPARE", Modifier.align(Alignment.BottomCenter).padding(10.dp))
         }
     }
 }
@@ -229,7 +244,10 @@ private fun EditorTabs(vm: EditorViewModel) {
                 Modifier
                     .weight(1f)
                     .fillMaxHeight()
-                    .selectable(selected = selected, role = Role.Tab, onClick = { vm.tab = t }),
+                    .selectable(selected = selected, role = Role.Tab, onClick = {
+                        vm.tab = t
+                        if (vm.curvePicker) vm.togglePicker()
+                    }),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
             ) {

@@ -51,7 +51,8 @@ fun ProPanel(vm: EditorViewModel) {
         val g = PRO_GROUPS[group]
         val sliders: List<ProSlider> = if (g.label == "HSL") hslSliders(band) else g.sliders
 
-        Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        if (g.label == "Curve") CurvePanel(vm)
+        else Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             if (g.label == "HSL") {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     HSL_SWATCHES.forEachIndexed { i, c ->

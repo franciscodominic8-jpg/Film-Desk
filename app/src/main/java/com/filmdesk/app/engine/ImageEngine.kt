@@ -7,6 +7,8 @@ import com.filmdesk.app.model.EditParams
 import com.filmdesk.app.model.FILM_SIMS
 import com.filmdesk.app.model.WB_PRESETS
 import com.filmdesk.app.model.WbType
+import com.filmdesk.app.model.curveLut
+import com.filmdesk.app.model.isIdentityCurve
 import com.filmdesk.app.model.effectiveTone
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -124,6 +126,7 @@ object ImageEngine {
         val gG: Float
         val gB: Float
         val dr: Int
+        val shoulderOn: Boolean
         val knee: Float
         val a: Float
         val norm: Float
@@ -144,6 +147,22 @@ object ImageEngine {
         val fade = p.fade / 100f * 0.15f
         val wc = p.monoWC.toFloat()
         val mg = p.monoMG.toFloat()
+        // Tone curves: a lookup table per channel, or null when the curve is a straight line.
+        val lutY: FloatArray? = if (isIdentityCurve(p.curveY)) null else curveLut(p.curveY, CURVE_LUT)
+        val lutR: FloatArray? = if (isIdentityCurve(p.curveR)) null else curveLut(p.curveR, CURVE_LUT)
+        val lutG: FloatArray? = if (isIdentityCurve(p.curveG)) null else curveLut(p.curveG, CURVE_LUT)
+        val lutB: FloatArray? = if (isIdentityCurve(p.curveB)) null else curveLut(p.curveB, CURVE_LUT)
+        val curveOn = lutY != null || lutR != null || lutG != null || lutB != null
+        val linked = p.curveLinked
+        val mixY = p.curveMix.getOrElse(0) { 100 } / 100f
+        val mixR = p.curveMix.getOrElse(1) { 100 } / 100f
+        val mixG = p.curveMix.getOrElse(2) { 100 } / 100f
+        val mixB = p.curveMix.getOrElse(3) { 100 } / 100f
+        // Soft clip
+        val softOn = p.softLow != 0 || p.softHigh != 100 || p.softLS != 0
+        val outLow = p.softLow / 100f
+        val outHigh = max(outLow + 0.01f, p.softHigh / 100f)
+        val lsKnee = 0.5f * (p.softLS / 100f)         // shadows roll off below this
         val hslOn = p.hslHue.any { it != 0 } || p.hslSat.any { it != 0 } || p.hslLum.any { it != 0 }
         val hueShift = FloatArray(8) { p.hslHue.getOrElse(it) { 0 } * 0.3f }
         val satShift = FloatArray(8) { p.hslSat.getOrElse(it) { 0 } / 100f }
@@ -163,9 +182,18 @@ object ImageEngine {
             dr = d
             hl = tone.highlight
             sh = tone.shadow
-            knee = when (d) { 1 -> 0.75f; 2 -> 0.6f; else -> 1f }
-            if (d > 0) {
-                val range = 1f + d * 0.5f
+            // Highlight roll-off in linear light, before anything is clipped:
+            // Dynamic Range and the Soft Clip H.S. control share one smooth shoulder.
+            val hs = p.softHS / 100f
+            var k = when (d) { 1 -> 0.75f; 2 -> 0.6f; else -> 1f }
+            var range = 1f + d * 0.5f
+            if (hs > 0f) {
+                k = min(k, 1f - 0.45f * hs)
+                range = max(range, 1f + 2f * hs)
+            }
+            knee = k
+            shoulderOn = k < 1f
+            if (shoulderOn) {
                 a = 1f / (1f - knee)
                 norm = 1f - exp(-a * (range - knee))
             } else {
@@ -291,6 +319,32 @@ object ImageEngine {
                 r += dL; g += dL; b += dL
                 if (q.proContrast != 0f) {
                     r = sCurve(r, q.proContrast); g = sCurve(g, q.proContrast); b = sCurve(b, q.proContrast)
+                }
+
+                // 3b. Custom curves (DaVinci-style):
+                //     linked: Y curve moves R, G, B together (YRGB);
+                //     unlinked: Y curve changes luma only, colour/saturation stay put.
+                //     Then R, G, B curves. Each channel mixed by its intensity.
+                if (q.curveOn) {
+                    val ly = q.lutY
+                    if (ly != null && q.mixY > 0f) {
+                        if (q.linked) {
+                            r += (ly[ci(r)] - r) * q.mixY
+                            g += (ly[ci(g)] - g) * q.mixY
+                            b += (ly[ci(b)] - b) * q.mixY
+                        } else {
+                            val yl = luma(r, g, b).coerceIn(0f, 1f)
+                            val dy = (ly[ci(yl)] - yl) * q.mixY
+                            r += dy; g += dy; b += dy
+                        }
+                    }
+                    q.lutR?.let { if (q.mixR > 0f) r += (it[ci(r)] - r) * q.mixR }
+                    q.lutG?.let { if (q.mixG > 0f) g += (it[ci(g)] - g) * q.mixG }
+                    q.lutB?.let { if (q.mixB > 0f) b += (it[ci(b)] - b) * q.mixB }
+                }
+                // 3c. Soft clip: smooth roll-off instead of hard clipping, then output range.
+                if (q.softOn) {
+                    r = softClip(r, q); g = softClip(g, q); b = softClip(b, q)
                 }
 
                 // 4. Saturation / Vibrance / Fuji Color — scales chroma in OKLab, so brightness
@@ -687,9 +741,58 @@ object ImageEngine {
     }
 
     private const val OPAQUE = -0x1000000 // 0xFF000000
+    private const val CURVE_LUT = 1024
+
+    /**
+     * Soft clip (like DaVinci's): L.S. lifts crushed shadows gently, then Low/High set the
+     * output black and white levels. (H.S. is applied earlier, in linear light — see Prepared.)
+     */
+    private fun softClip(v: Float, q: Prepared): Float {
+        var x = v
+        if (q.lsKnee > 0f && x < q.lsKnee) {
+            val span = q.lsKnee
+            x = q.lsKnee - span * tanh((q.lsKnee - x) / span)
+        }
+        return q.outLow + (q.outHigh - q.outLow) * x.coerceIn(0f, 1f)
+    }
+
+    private fun ci(v: Float): Int = (v.coerceIn(0f, 1f) * (CURVE_LUT - 1) + 0.5f).toInt()
+
+    /** 64-bin histograms (Y, R, G, B), each scaled so its tallest bin is 1. */
+    class Histogram(val y: FloatArray, val r: FloatArray, val g: FloatArray, val b: FloatArray)
+
+    fun histogram(bmp: Bitmap, bins: Int = 64): Histogram {
+        val w = bmp.width
+        val h = bmp.height
+        val step = max(1, max(w, h) / 400)
+        val hy = FloatArray(bins); val hr = FloatArray(bins); val hg = FloatArray(bins); val hb = FloatArray(bins)
+        val row = IntArray(w)
+        var y = 0
+        while (y < h) {
+            bmp.getPixels(row, 0, w, 0, y, w, 1)
+            var x = 0
+            while (x < w) {
+                val c = row[x]
+                val r = (c shr 16) and 255
+                val g = (c shr 8) and 255
+                val b = c and 255
+                hr[r * bins / 256]++; hg[g * bins / 256]++; hb[b * bins / 256]++
+                hy[((r * 77 + g * 150 + b * 29) shr 8).coerceIn(0, 255) * bins / 256]++
+                x += step
+            }
+            y += step
+        }
+        fun norm(a: FloatArray): FloatArray {
+            // Ignore the extreme end bins when scaling so clipped areas don't flatten the rest.
+            var mx = 1f
+            for (i in 1 until bins - 1) mx = max(mx, a[i])
+            return FloatArray(bins) { (a[it] / mx).coerceAtMost(1f) }
+        }
+        return Histogram(norm(hy), norm(hr), norm(hg), norm(hb))
+    }
 
     private fun shoulder(x: Float, q: Prepared): Float {
-        if (q.dr == 0 || x <= q.knee) return x
+        if (!q.shoulderOn || x <= q.knee) return x
         return q.knee + (1f - q.knee) * min(1f, (1f - exp(-q.a * (x - q.knee))) / q.norm)
     }
 
