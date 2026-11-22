@@ -101,6 +101,10 @@ fun CurveScreen(vm: EditorViewModel) {
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val wide = maxWidth >= 600.dp
+        // Same photo height as the normal editor (screen − top bar − tool panel − tab bar);
+        // the space of the hidden tab bar goes to the graph.
+        val panel = minOf(maxHeight * 0.42f, 360.dp)
+        val photoH = (maxHeight - 56.dp - panel - 68.dp).coerceAtLeast(160.dp)
         Column(Modifier.fillMaxSize()) {
             CurveTopBar(vm)
             if (wide) {
@@ -111,10 +115,6 @@ fun CurveScreen(vm: EditorViewModel) {
                         Modifier.width(360.dp).fillMaxHeight())
                 }
             } else {
-                // Same photo height as the normal editor (screen − top bar − tool panel − tab bar);
-                // the space of the hidden tab bar goes to the graph.
-                val panel = minOf(maxHeight * 0.42f, 360.dp)
-                val photoH = (maxHeight - 56.dp - panel - 68.dp).coerceAtLeast(160.dp)
                 PreviewArea(vm, Modifier.fillMaxWidth().height(photoH))
                 CurveControls(vm, tab, { tab = it }, channel, { channel = it },
                     Modifier.fillMaxWidth().weight(1f))
