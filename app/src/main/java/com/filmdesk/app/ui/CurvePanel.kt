@@ -111,9 +111,13 @@ fun CurveScreen(vm: EditorViewModel) {
                         Modifier.width(360.dp).fillMaxHeight())
                 }
             } else {
-                PreviewArea(vm, Modifier.fillMaxWidth().weight(0.85f))
+                // Same photo height as the normal editor (screen − top bar − tool panel − tab bar);
+                // the space of the hidden tab bar goes to the graph.
+                val panel = minOf(maxHeight * 0.42f, 360.dp)
+                val photoH = (maxHeight - 56.dp - panel - 68.dp).coerceAtLeast(160.dp)
+                PreviewArea(vm, Modifier.fillMaxWidth().height(photoH))
                 CurveControls(vm, tab, { tab = it }, channel, { channel = it },
-                    Modifier.fillMaxWidth().weight(1.15f))
+                    Modifier.fillMaxWidth().weight(1f))
             }
         }
     }
@@ -152,7 +156,7 @@ private fun CurveControls(
     onChannel: (Int) -> Unit,
     modifier: Modifier,
 ) {
-    Column(modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(modifier.padding(horizontal = 8.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         SegmentedTabs(listOf("Curve", "Intensity", "Soft Clip"), tab, onTab)
         when (tab) {
             0 -> CurveTab(vm, channel, onChannel, Modifier.fillMaxWidth().weight(1f))
@@ -177,7 +181,7 @@ private fun SegmentedTabs(items: List<String>, selected: Int, onSelect: (Int) ->
             Box(
                 Modifier
                     .weight(1f)
-                    .height(38.dp)
+                    .height(32.dp)
                     .clip(RoundedCornerShape(9.dp))
                     .background(if (on) FD.Amber else Color.Transparent)
                     .selectable(selected = on, role = Role.Tab, onClick = { onSelect(i) }),
@@ -200,7 +204,7 @@ private fun CurveTab(vm: EditorViewModel, channel: Int, onChannel: (Int) -> Unit
     val points = p.curve(channel)
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         // Edit row: link · Y R G B · eyedropper · menu
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
             Box(
                 Modifier
                     .size(40.dp)
@@ -275,25 +279,15 @@ private fun CurveTab(vm: EditorViewModel, channel: Int, onChannel: (Int) -> Unit
                 }
             }
         }
-        Text(
-            when {
-                vm.curvePicker -> "Tap the photo to see that colour on the curves"
-                channel == 0 && p.curveLinked -> "Luma · linked: moves red, green and blue together"
-                channel == 0 -> "Luma · unlinked: brightness only, colours stay the same"
-                else -> CHANNEL_LABELS[channel] + " · drag to add or move points, double-tap to delete"
-            },
-            color = if (vm.curvePicker) FD.Amber else FD.Muted, fontSize = 12.sp,
-        )
-        // The graph takes all the space that's left, as a square.
-        BoxWithConstraints(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
-            val side = if (maxWidth < maxHeight) maxWidth else maxHeight
-            Box(
-                Modifier
-                    .size(side)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(Color(0xFF18191B))
-                    .border(1.dp, FD.Line, RoundedCornerShape(10.dp))
-            ) {
+        // The graph takes all the width and height that's left (a rectangle, like Resolve).
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .clip(RoundedCornerShape(10.dp))
+                .background(Color(0xFF18191B))
+                .border(1.dp, FD.Line, RoundedCornerShape(10.dp))
+        ) {
                 CurveCanvas(
                     params = p,
                     channel = channel,
@@ -301,9 +295,18 @@ private fun CurveTab(vm: EditorViewModel, channel: Int, onChannel: (Int) -> Unit
                     sample = vm.curveSample,
                     onChange = { vm.updateParams(vm.params.withCurve(channel, it)) },
                     onDone = vm::commit,
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier.fillMaxSize().padding(12.dp),
                 )
-            }
+            Text(
+                when {
+                    vm.curvePicker -> "Tap the photo to see that colour on the curves"
+                    channel == 0 && p.curveLinked -> "Luma · linked"
+                    channel == 0 -> "Luma · unlinked (brightness only)"
+                    else -> CHANNEL_LABELS[channel]
+                },
+                color = if (vm.curvePicker) FD.Amber else Color(0xFF8E8D88), fontSize = 11.sp,
+                modifier = Modifier.align(Alignment.TopStart).padding(start = 10.dp, top = 6.dp),
+            )
         }
     }
 }
@@ -415,13 +418,13 @@ private fun CurveCanvas(
                     onTap = { pos ->
                         val pts = latest
                         val w = size.width.toFloat(); val h = size.height.toFloat()
-                        if (nearest(pts, pos, w, h, 24.dp.toPx()) < 0) {
+                        if (nearest(pts, pos, w, h, 30.dp.toPx()) < 0) {
                             insertPoint(pts, pos, w, h)?.let { (list, _) -> onChange(list); onDone() }
                         }
                     },
                     onDoubleTap = { pos ->
                         val pts = latest
-                        val i = nearest(pts, pos, size.width.toFloat(), size.height.toFloat(), 24.dp.toPx())
+                        val i = nearest(pts, pos, size.width.toFloat(), size.height.toFloat(), 30.dp.toPx())
                         if (i > 0 && i < pts.size / 2 - 1) {
                             val list = pts.toMutableList()
                             list.removeAt(i * 2 + 1); list.removeAt(i * 2)
@@ -436,7 +439,7 @@ private fun CurveCanvas(
                     onDragStart = { pos ->
                         val w = size.width.toFloat(); val h = size.height.toFloat()
                         working = latest.toMutableList()
-                        var i = nearest(working, pos, w, h, 28.dp.toPx())
+                        var i = nearest(working, pos, w, h, 34.dp.toPx())
                         if (i < 0) {
                             insertPoint(working, pos, w, h)?.let { (list, idx) ->
                                 working = list.toMutableList(); i = idx; onChange(working.toList())
@@ -515,7 +518,7 @@ private fun CurveCanvas(
         val n = points.size / 2
         for (i in 0 until n) {
             val c = Offset(points[i * 2] * w, (1f - points[i * 2 + 1]) * h)
-            val r = if (i == active) 8.dp.toPx() else 5.5.dp.toPx()
+            val r = if (i == active) 10.dp.toPx() else 7.dp.toPx()
             drawCircle(Color(0xFF18191B), r + 2.dp.toPx(), c)
             drawCircle(if (i == active) FD.Amber else CHANNEL_COLORS[channel], r, c)
         }
