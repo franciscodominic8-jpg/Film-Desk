@@ -63,8 +63,8 @@ data class ExportSettings(
 
     val canLimitSize: Boolean get() = format == ExportFormat.JPEG || (format == ExportFormat.WEBP && !webpLossless)
 
-    /** Formats Film Desk can write metadata into. */
-    val canWriteMetadata: Boolean get() = format != ExportFormat.HEIF
+    /** Metadata is written only into JPEG, where it is reliable on every phone. */
+    val canWriteMetadata: Boolean get() = format == ExportFormat.JPEG
 
     val folderPath: String get() = "FilmDesk" + (cleanFolder(folder).takeIf { it.isNotEmpty() }?.let { "/$it" } ?: "")
 

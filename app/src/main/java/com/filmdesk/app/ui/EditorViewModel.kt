@@ -345,8 +345,8 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Output size of the open photo with [s]. */
     fun exportSize(s: ExportSettings = exportSettings): Pair<Int, Int>? {
-        val (crop, _) = fullSizes() ?: return null
-        return targetSize(crop.first, crop.second, s, BitmapIO.maxExportLongEdge())
+        val (crop, whole) = fullSizes() ?: return null
+        return targetSize(crop.first, crop.second, s, cropLimit(crop.first, crop.second, whole.first, whole.second))
     }
 
     /** Rough file size of the export (from encoding the preview), or null while unknown. */
@@ -698,7 +698,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         val r = p.cropRect(w, h)
         val cw = ((r[2] - r[0]) * w).roundToInt().coerceAtLeast(1)
         val ch = ((r[3] - r[1]) * h).roundToInt().coerceAtLeast(1)
-        val (tw, th) = targetSize(cw, ch, s, limit)
+        val (tw, th) = targetSize(cw, ch, s, cropLimit(cw, ch, w, h))
         // Decode just big enough for the crop to reach the export size (within memory limits).
         val need = (max(w, h) * max(tw / cw.toFloat(), th / ch.toFloat())).roundToInt() + 2
         val edge = need.coerceIn(64, min(max(w, h), limit))
@@ -714,6 +714,16 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
             else Exporter.saveToGallery(ctx, enc.bytes, s, tags, out.width, out.height, name)
         }
         return ExportResult(out.width, out.height, enc.bytes.size.toLong(), enc.fits)
+    }
+
+    /**
+     * Largest long edge the crop can reach: the whole photo is decoded at most at the memory
+     * limit, so a crop gets the same share of it.
+     */
+    private fun cropLimit(cw: Int, ch: Int, w: Int, h: Int): Int {
+        val limit = BitmapIO.maxExportLongEdge()
+        val whole = max(w, h)
+        return if (whole <= limit) whole else (limit.toFloat() * max(cw, ch) / whole).roundToInt().coerceAtLeast(1)
     }
 
     class ExportResult(val w: Int, val h: Int, val bytes: Long, val fits: Boolean)
@@ -782,7 +792,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
             }
             clearSelection()
             exportTargets = emptyList()
-            back()
+            if (screen == Screen.Export) back()
             message = if (ok == items.size) "Saved $ok to Pictures/${s.folderPath} (${formatBytes(total)})"
             else "Saved $ok of ${items.size}" + (lastError?.let { " — $it" } ?: "")
         }

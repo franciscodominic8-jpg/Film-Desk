@@ -56,6 +56,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
@@ -149,7 +150,8 @@ fun ExportScreen(vm: EditorViewModel) {
                     SwitchLine("Lossless", "Bigger file, no quality loss", s.webpLossless) { on -> set { it.copy(webpLossless = on) } }
                 }
                 if (s.format == ExportFormat.PNG) Note("PNG is always lossless.")
-                if (s.format == ExportFormat.HEIF) Note("Smaller files at the same quality. Metadata isn't kept in HEIF.")
+                if (s.format == ExportFormat.HEIF) Note("Smaller files at the same quality.")
+                if (!s.canWriteMetadata) Note("Metadata (camera info, copyright, recipe) is saved in JPEG files only.")
                 if (s.lossy) {
                     LabeledSlider(
                         label = "Quality", value = s.quality.toFloat(), range = 10f..100f, display = s.quality.toString(),
@@ -164,7 +166,7 @@ fun ExportScreen(vm: EditorViewModel) {
                         }
                         NumberField(
                             value = s.limitMb.let { if (it == it.roundToInt().toFloat()) it.roundToInt().toString() else it.toString() },
-                            suffix = "MB", width = 96, decimal = true, enabled = s.limitSize,
+                            suffix = "MB", width = 96, decimal = true, enabled = s.limitSize, min = 0.1f,
                         ) { txt -> txt.toFloatOrNull()?.let { v -> set { it.copy(limitMb = v.coerceIn(0.1f, 100f)) } } }
                         Spacer(Modifier.width(8.dp))
                         FdSwitch(s.limitSize) { on -> set { it.copy(limitSize = on) } }
@@ -190,7 +192,10 @@ fun ExportScreen(vm: EditorViewModel) {
                         }
                     }
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        NumberField(value.toString(), suffix, width = 120, key = s.sizeMode.name) { txt -> txt.toIntOrNull()?.let(::setValue) }
+                        val min = if (s.sizeMode == SizeMode.LongEdge || s.sizeMode == SizeMode.ShortEdge) 64f else 1f
+                        NumberField(value.toString(), suffix, width = 120, key = s.sizeMode.name, min = min) { txt ->
+                            txt.toIntOrNull()?.let(::setValue)
+                        }
                         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             quick.forEach { q -> Pill(q.toString(), selected = value == q, onClick = { setValue(q) }) }
                         }
@@ -226,7 +231,7 @@ fun ExportScreen(vm: EditorViewModel) {
 
             Section("Metadata", mod) {
                 if (!s.canWriteMetadata) {
-                    Note("HEIF files are saved without metadata.")
+                    Note("${s.format.label} files are saved without metadata. Choose JPEG to keep camera info, copyright and the recipe.")
                 } else {
                     Segmented(MetadataMode.entries.map { it.label }, MetadataMode.entries.indexOf(s.metadata)) { i ->
                         set { it.copy(metadata = MetadataMode.entries[i]) }
@@ -249,7 +254,8 @@ fun ExportScreen(vm: EditorViewModel) {
                     Text("Pictures/FilmDesk/", color = FD.Muted, fontSize = 14.sp)
                     OutlinedTextField(
                         value = s.folder,
-                        onValueChange = { t -> set { it.copy(folder = cleanFolder(t)) } },
+                        // Spaces are fine while typing; the name is tidied when saving.
+                        onValueChange = { t -> set { it.copy(folder = t.replace(Regex("[^\\p{L}\\p{N} _-]"), "").take(40)) } },
                         singleLine = true,
                         placeholder = { Text("(no subfolder)", color = FD.Line) },
                         colors = fieldColors(),
@@ -543,26 +549,33 @@ private fun TextLine(label: String, value: String, placeholder: String, onChange
     )
 }
 
-/** A number box that keeps what's being typed and reports valid numbers. */
+/**
+ * A number box that keeps exactly what is being typed ("2", "20", "204", "2048" or "1.") and
+ * only passes on numbers from [min] up; when you leave the box it shows the value in use.
+ */
 @Composable
 private fun NumberField(
     value: String, suffix: String, width: Int, decimal: Boolean = false, enabled: Boolean = true, key: String = "",
-    onValue: (String) -> Unit,
+    min: Float = 0f, onValue: (String) -> Unit,
 ) {
-    var text by remember(key, value) { mutableStateOf(value) }
+    var text by remember(key) { mutableStateOf(value) }
+    var focused by remember { mutableStateOf(false) }
+    LaunchedEffect(value, focused) { if (!focused) text = value }
     OutlinedTextField(
         value = text,
         onValueChange = { t ->
-            val clean = t.filter { it.isDigit() || (decimal && it == '.') }.take(6)
+            var clean = t.filter { it.isDigit() || (decimal && it == '.') }.take(6)
+            if (decimal && clean.count { it == '.' } > 1) clean = clean.substring(0, clean.lastIndexOf('.'))
             text = clean
-            if (clean.isNotEmpty()) onValue(clean)
+            val v = clean.toFloatOrNull()
+            if (v != null && v >= min) onValue(clean)
         },
         enabled = enabled,
         singleLine = true,
         suffix = { Text(suffix, color = FD.Muted) },
         keyboardOptions = KeyboardOptions(keyboardType = if (decimal) KeyboardType.Decimal else KeyboardType.Number),
         colors = fieldColors(),
-        modifier = Modifier.width(width.dp),
+        modifier = Modifier.width(width.dp).onFocusChanged { focused = it.isFocused },
     )
 }
 

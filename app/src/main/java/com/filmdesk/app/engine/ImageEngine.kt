@@ -136,7 +136,7 @@ object ImageEngine {
             softLow = 0, softHigh = 100, softLS = 0,
             saturation = 0, vibrance = 0, color = 0, colorChrome = 0, colorChromeBlue = 0,
             hslHue = List(8) { 0 }, hslSat = List(8) { 0 }, hslLum = List(8) { 0 },
-            fade = 0, vignette = 0, grain = 0,
+            fade = 0, vignette = 0, grain = 0, glow = 0,
         ).withoutGeometry()
         val out = render(crop, pre, stats, detail = false)
         val px = IntArray(out.width * out.height)
@@ -157,6 +157,7 @@ object ImageEngine {
         val prep = Prepared(p, stats)
         parallelRows(h) { y0, y1 -> colorRows(px, w, y0, y1, prep) }
         if (detail) applyDetail(px, w, h, p)
+        if (p.glow > 0) applyGlow(px, w, h, p)
         if (p.grain > 0 || p.vignette != 0) parallelRows(h) { y0, y1 -> finishRows(px, w, h, y0, y1, p) }
         val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
         out.setPixels(px, 0, w, 0, 0, w, h)
@@ -677,6 +678,96 @@ object ImageEngine {
                 sb += (add and 255) - (sub and 255)
             }
         }
+    }
+
+    // ------------------------------------------------------------------- glow
+
+    /**
+     * Glow effects, worked out on a small copy (long edge ≤ 1024) so the look is the same in
+     * the preview and in a full-size export, then blended back smoothly:
+     *  - Glow: bright areas bloom softly in their own colour (warmth tints it),
+     *  - Halation: a red-orange glow around highlights, like film without an anti-halation layer,
+     *  - Mist: the whole picture gets a soft haze, like a diffusion filter.
+     */
+    private fun applyGlow(px: IntArray, w: Int, h: Int, p: EditParams) {
+        val long = max(w, h)
+        val f = max(1, (long + 1023) / 1024)
+        val sw = max(1, w / f)
+        val sh = max(1, h / f)
+        val n = sw * sh
+        val gr = FloatArray(n); val gg = FloatArray(n); val gb = FloatArray(n)
+        val th = p.glowThreshold / 100f
+        val warm = p.glowWarmth / 100f
+        val style = p.glowStyle
+        // 1. Small copy of the parts that glow.
+        for (y in 0 until sh) for (x in 0 until sw) {
+            var r = 0f; var g = 0f; var b = 0f; var c = 0
+            val y0 = y * f; val x0 = x * f
+            for (yy in y0 until min(h, y0 + f)) {
+                var i = yy * w + x0
+                for (xx in x0 until min(w, x0 + f)) {
+                    val v = px[i++]
+                    r += ((v shr 16) and 255) / 255f; g += ((v shr 8) and 255) / 255f; b += (v and 255) / 255f; c++
+                }
+            }
+            r /= c; g /= c; b /= c
+            val l = luma(r, g, b)
+            val k = y * sw + x
+            when (style) {
+                1 -> { // Halation: only the brightest parts, tinted red-orange.
+                    val m = smooth(th, min(1f, th + 0.2f), l) * l
+                    gr[k] = m; gg[k] = m * (0.22f + 0.25f * (1f - warm)); gb[k] = m * 0.08f
+                }
+                2 -> { // Mist: everything, the highlights a little more.
+                    val m = 0.35f + 0.65f * smooth(th - 0.4f, th + 0.1f, l)
+                    gr[k] = r * m; gg[k] = g * m; gb[k] = b * m
+                }
+                else -> { // Glow: bright areas in their own colour.
+                    val m = smooth(th - 0.1f, min(1f, th + 0.15f), l)
+                    gr[k] = r * m * (1f + 0.25f * warm); gg[k] = g * m * (1f + 0.05f * warm); gb[k] = b * m * (1f - 0.25f * warm)
+                }
+            }
+        }
+        // 2. Spread it: three box blurs ≈ a soft Gaussian.
+        val radius = max(1, (max(sw, sh) * (0.004f + 0.05f * p.glowSize / 100f)).roundToInt())
+        val tmp = FloatArray(n)
+        for (plane in arrayOf(gr, gg, gb)) repeat(3) { boxF(plane, plane, sw, sh, radius, tmp) }
+        // 3. Blend back (screen), reading the small map with bilinear filtering.
+        val amt = p.glow / 100f * when (style) { 1 -> 1.6f; 2 -> 0.75f; else -> 1.25f }
+        val sx = (sw - 1).toFloat() / max(1, w - 1)
+        val sy = (sh - 1).toFloat() / max(1, h - 1)
+        for (y in 0 until h) {
+            val fy = y * sy
+            val y0 = fy.toInt().coerceIn(0, sh - 1); val y1 = min(sh - 1, y0 + 1); val ty = fy - y0
+            for (x in 0 until w) {
+                val fx = x * sx
+                val x0 = fx.toInt().coerceIn(0, sw - 1); val x1 = min(sw - 1, x0 + 1); val tx = fx - x0
+                val a = y0 * sw + x0; val b2 = y0 * sw + x1; val c = y1 * sw + x0; val d = y1 * sw + x1
+                val i = y * w + x
+                val v = px[i]
+                var r = ((v shr 16) and 255) / 255f
+                var g = ((v shr 8) and 255) / 255f
+                var b = (v and 255) / 255f
+                val lr = (bilerp(gr, a, b2, c, d, tx, ty) * amt).coerceIn(0f, 1f)
+                val lg = (bilerp(gg, a, b2, c, d, tx, ty) * amt).coerceIn(0f, 1f)
+                val lb = (bilerp(gb, a, b2, c, d, tx, ty) * amt).coerceIn(0f, 1f)
+                if (style == 2) {
+                    // Mist also lowers contrast a little, like real diffusion.
+                    val k = 0.35f * amt
+                    r += (0.5f - r) * k * 0.25f; g += (0.5f - g) * k * 0.25f; b += (0.5f - b) * k * 0.25f
+                }
+                r = 1f - (1f - r) * (1f - lr)
+                g = 1f - (1f - g) * (1f - lg)
+                b = 1f - (1f - b) * (1f - lb)
+                px[i] = pack(r, g, b)
+            }
+        }
+    }
+
+    private fun bilerp(pl: FloatArray, a: Int, b: Int, c: Int, d: Int, tx: Float, ty: Float): Float {
+        val top = pl[a] + (pl[b] - pl[a]) * tx
+        val bot = pl[c] + (pl[d] - pl[c]) * tx
+        return top + (bot - top) * ty
     }
 
     // ---------------------------------------------------- grain + vignette pass

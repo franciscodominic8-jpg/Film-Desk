@@ -83,6 +83,8 @@ class ProSlider(
     val max: Int,
     val get: (EditParams) -> Int,
     val set: (EditParams, Int) -> EditParams,
+    /** Value meaning "no change" (what Reset goes back to). */
+    val def: Int = 0,
 )
 
 class ProGroup(val label: String, val sliders: List<ProSlider>)
@@ -106,6 +108,7 @@ val PRO_GROUPS: List<ProGroup> = listOf(
     ProGroup("HSL", emptyList()),
     ProGroup("Effects", listOf(
         ProSlider("Vignette", -100, 100, { it.vignette }, { p, v -> p.copy(vignette = v) }),
+        ProSlider("Glow", 0, 100, { it.glow }, { p, v -> p.copy(glow = v) }),
     )),
 )
 
@@ -139,3 +142,12 @@ fun QSetting.effectiveDisplay(p: EditParams): String {
     }
     return display(p)
 }
+
+val GLOW_STYLES = listOf("Glow", "Halation", "Mist")
+
+/** Extra Glow controls, shown when Glow is on. */
+val GLOW_SLIDERS: List<ProSlider> = listOf(
+    ProSlider("Threshold", 0, 100, { it.glowThreshold }, { p, v -> p.copy(glowThreshold = v) }, def = 70),
+    ProSlider("Size", 0, 100, { it.glowSize }, { p, v -> p.copy(glowSize = v) }, def = 40),
+    ProSlider("Warmth", 0, 100, { it.glowWarmth }, { p, v -> p.copy(glowWarmth = v) }, def = 30),
+)

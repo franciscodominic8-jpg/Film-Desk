@@ -1,5 +1,8 @@
 package com.filmdesk.app.ui
 
+import androidx.compose.ui.unit.sp
+import com.filmdesk.app.model.GLOW_SLIDERS
+import com.filmdesk.app.model.GLOW_STYLES
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
@@ -76,22 +79,42 @@ fun ProPanel(vm: EditorViewModel) {
                 }
                 SectionLabel(HSL_NAMES[band], Modifier.padding(top = 4.dp))
             }
-            sliders.forEach { s ->
-                val v = s.get(vm.params)
-                LabeledSlider(
-                    label = s.label,
-                    value = v.toFloat(),
-                    range = s.min.toFloat()..s.max.toFloat(),
-                    display = if (v > 0 && s.min < 0) "+$v" else v.toString().replace("-", "−"),
-                    changed = v != 0,
-                    onChange = { vm.updateParams(s.set(vm.params, Math.round(it))) },
-                    onDone = vm::commit,
-                    onReset = { vm.change(s.set(vm.params, 0)) },
+            sliders.forEach { s -> ProSliderRow(vm, s) }
+            if (g.label == "Effects" && vm.params.glow > 0) {
+                // Glow style and its finer controls.
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 4.dp)) {
+                    GLOW_STYLES.forEachIndexed { i, label ->
+                        Pill(label, selected = vm.params.glowStyle == i, onClick = { vm.change(vm.params.copy(glowStyle = i)) })
+                    }
+                }
+                Text(
+                    when (vm.params.glowStyle) {
+                        1 -> "Red-orange glow around highlights, like CineStill film."
+                        2 -> "Soft haze over the whole photo, like a mist filter."
+                        else -> "Soft bloom around bright areas."
+                    },
+                    color = FD.Muted, fontSize = 12.sp,
                 )
+                GLOW_SLIDERS.forEach { s -> ProSliderRow(vm, s) }
             }
             TextButton(onClick = { vm.change(vm.params.resetPro()) }, modifier = Modifier.align(androidx.compose.ui.Alignment.End)) {
                 Text("Reset pro adjustments", color = FD.Muted)
             }
         }
     }
+}
+
+@Composable
+private fun ProSliderRow(vm: EditorViewModel, s: ProSlider) {
+    val v = s.get(vm.params)
+    LabeledSlider(
+        label = s.label,
+        value = v.toFloat(),
+        range = s.min.toFloat()..s.max.toFloat(),
+        display = if (v > 0 && s.min < 0) "+$v" else v.toString().replace("-", "−"),
+        changed = v != s.def,
+        onChange = { vm.updateParams(s.set(vm.params, Math.round(it))) },
+        onDone = vm::commit,
+        onReset = { vm.change(s.set(vm.params, s.def)) },
+    )
 }

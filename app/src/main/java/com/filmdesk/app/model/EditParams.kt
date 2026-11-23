@@ -43,6 +43,16 @@ data class EditParams(
     val saturation: Int = 0,
     val fade: Int = 0,
     val vignette: Int = 0,
+    /** Glow amount 0..100 (0 = off). */
+    val glow: Int = 0,
+    /** 0 Glow (bloom), 1 Halation (red-orange film glow), 2 Mist (soft haze). */
+    val glowStyle: Int = 0,
+    /** Brightness (0..100) where highlights start to glow. */
+    val glowThreshold: Int = 70,
+    /** How far the glow spreads, 0..100. */
+    val glowSize: Int = 40,
+    /** 0 neutral … 100 warm. */
+    val glowWarmth: Int = 30,
     val hslHue: List<Int> = ZERO8,
     val hslSat: List<Int> = ZERO8,
     val hslLum: List<Int> = ZERO8,
@@ -87,6 +97,7 @@ data class EditParams(
     fun resetCamera() = EditParams().copy(
         contrast = contrast, highlights = highlights, shadows = shadows, whites = whites, blacks = blacks,
         temp = temp, tint = tint, vibrance = vibrance, saturation = saturation, fade = fade, vignette = vignette,
+        glow = glow, glowStyle = glowStyle, glowThreshold = glowThreshold, glowSize = glowSize, glowWarmth = glowWarmth,
         hslHue = hslHue, hslSat = hslSat, hslLum = hslLum,
         curveY = curveY, curveR = curveR, curveG = curveG, curveB = curveB,
         curveLinked = curveLinked, curveMix = curveMix,
@@ -96,7 +107,8 @@ data class EditParams(
     /** Resets only the Pro adjustments. */
     fun resetPro() = copy(
         contrast = 0, highlights = 0, shadows = 0, whites = 0, blacks = 0, temp = 0, tint = 0,
-        vibrance = 0, saturation = 0, fade = 0, vignette = 0, hslHue = ZERO8, hslSat = ZERO8, hslLum = ZERO8,
+        vibrance = 0, saturation = 0, fade = 0, vignette = 0,
+        glow = 0, glowStyle = 0, glowThreshold = 70, glowSize = 40, glowWarmth = 30, hslHue = ZERO8, hslSat = ZERO8, hslLum = ZERO8,
         curveY = IDENTITY_CURVE, curveR = IDENTITY_CURVE, curveG = IDENTITY_CURVE, curveB = IDENTITY_CURVE,
         curveLinked = true, curveMix = FULL_MIX, softLow = 0, softHigh = 100, softLS = 0, softHS = 0,
     )
@@ -113,6 +125,8 @@ data class EditParams(
         put("contrast", contrast); put("highlights", highlights); put("shadows", shadows)
         put("whites", whites); put("blacks", blacks); put("temp", temp); put("tint", tint)
         put("vibrance", vibrance); put("saturation", saturation); put("fade", fade); put("vignette", vignette)
+        put("glow", glow); put("glowStyle", glowStyle); put("glowThreshold", glowThreshold)
+        put("glowSize", glowSize); put("glowWarmth", glowWarmth)
         put("hslHue", JSONArray(hslHue)); put("hslSat", JSONArray(hslSat)); put("hslLum", JSONArray(hslLum))
         fun curveJson(c: List<Float>) = JSONArray().apply { c.forEach { put(it.toDouble()) } }
         put("curveY", curveJson(curveY)); put("curveR", curveJson(curveR))
@@ -170,6 +184,9 @@ data class EditParams(
                 saturation = i("saturation", -100, 100),
                 fade = i("fade", 0, 100),
                 vignette = i("vignette", -100, 100),
+                glow = i("glow", 0, 100), glowStyle = i("glowStyle", 0, 2),
+                glowThreshold = i("glowThreshold", 0, 100, 70), glowSize = i("glowSize", 0, 100, 40),
+                glowWarmth = i("glowWarmth", 0, 100, 30),
                 hslHue = list("hslHue"), hslSat = list("hslSat"), hslLum = list("hslLum"),
                 curveY = curve("curveY"), curveR = curve("curveR"), curveG = curve("curveG"), curveB = curve("curveB"),
                 curveLinked = o.optBoolean("curveLinked", true),

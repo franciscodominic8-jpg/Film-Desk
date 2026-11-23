@@ -4,7 +4,7 @@ package com.filmdesk.app.model
 enum class PastePart(val title: String, val subtitle: String, val defaultOn: Boolean) {
     Film("Film Simulation", "Simulation and its strength", true),
     QMenu("Q Menu settings", "WB, Dynamic Range, Highlight/Shadow, Colour, Grain, Chrome FX", true),
-    Light("Pro · Light", "Contrast, Highlights, Shadows, Whites, Blacks, Fade, Vignette", true),
+    Light("Pro · Light & Effects", "Contrast, Highlights, Shadows, Whites, Blacks, Fade, Vignette, Glow", true),
     Color("Pro · Colour & HSL", "Temperature, Tint, Vibrance, Saturation, HSL", true),
     Curve("Curve", "YRGB curves, Intensity, Soft Clip", true),
     Detail("Detail", "Sharpness, Noise reduction, Clarity, Smooth skin", false),
@@ -29,6 +29,8 @@ fun EditParams.pasteFrom(src: EditParams, parts: Set<PastePart>): EditParams {
         PastePart.Light -> p.copy(
             contrast = src.contrast, highlights = src.highlights, shadows = src.shadows,
             whites = src.whites, blacks = src.blacks, fade = src.fade, vignette = src.vignette,
+            glow = src.glow, glowStyle = src.glowStyle, glowThreshold = src.glowThreshold,
+            glowSize = src.glowSize, glowWarmth = src.glowWarmth,
         )
         PastePart.Color -> p.copy(
             temp = src.temp, tint = src.tint, vibrance = src.vibrance, saturation = src.saturation,
