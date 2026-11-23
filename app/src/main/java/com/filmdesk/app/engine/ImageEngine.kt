@@ -831,7 +831,7 @@ object ImageEngine {
         val s = s_ * s_ * s_
         out[0] = 4.0767416621f * l - 3.3077115913f * m + 0.2309699292f * s
         out[1] = -1.2684380046f * l + 2.6097574011f * m - 0.3413193965f * s
-        out[2] = -0.0041960863f * l - 0.5110127212f * m + 1.5003456678f * s
+        out[2] = -0.0041960863f * l - 0.7034186147f * m + 1.7076147010f * s
     }
 
     private fun inGamut(lL: Float, ua: Float, ub: Float, c: Float, tmp: FloatArray): Boolean {
