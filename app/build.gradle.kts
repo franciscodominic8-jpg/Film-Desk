@@ -18,14 +18,23 @@ android {
         vectorDrawables { useSupportLibrary = true }
     }
 
+    // One fixed key (kept in the repo) so every new build installs over the old app and keeps
+    // your Studio, recipes and presets. Anyone with the repo can sign with it too.
+    signingConfigs {
+        create("filmdesk") {
+            storeFile = file("filmdesk-release.jks")
+            storePassword = "filmdesk"
+            keyAlias = "filmdesk"
+            keyPassword = "filmdesk"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            // Signed with the debug key so the APK installs straight away.
-            // Replace with your own keystore before publishing on Google Play.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("filmdesk")
         }
     }
 
