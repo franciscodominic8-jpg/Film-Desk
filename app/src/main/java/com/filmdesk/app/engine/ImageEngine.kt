@@ -8,6 +8,7 @@ import com.filmdesk.app.model.cropRect
 import com.filmdesk.app.model.straightenScale
 import com.filmdesk.app.model.EditParams
 import com.filmdesk.app.model.FILM_SIMS
+import com.filmdesk.app.model.FilmSim
 import com.filmdesk.app.model.WB_PRESETS
 import com.filmdesk.app.model.WbType
 import com.filmdesk.app.model.IDENTITY_CURVE
@@ -291,10 +292,7 @@ object ImageEngine {
 
     private fun colorRows(px: IntArray, w: Int, y0: Int, y1: Int, q: Prepared) {
         val sim = q.sim
-        val m = sim.matrix
         val mono = sim.mono
-        val st = sim.shadowTint
-        val ht = sim.highlightTint
         val hsv = FloatArray(3)
         val lab = FloatArray(3)
         val rgbTmp = FloatArray(3)
@@ -308,39 +306,12 @@ object ImageEngine {
                 var g = enc(shoulder(toLinear[(c shr 8) and 255] * q.gG, q))
                 var b = enc(shoulder(toLinear[c and 255] * q.gB, q))
 
-                // 2. film simulation
-                var sr = r
-                var sg = g
-                var sb = b
-                if (m != null) {
-                    val nr = m[0] * sr + m[1] * sg + m[2] * sb
-                    val ng = m[3] * sr + m[4] * sg + m[5] * sb
-                    val nb = m[6] * sr + m[7] * sg + m[8] * sb
-                    sr = nr; sg = ng; sb = nb
-                }
-                if (mono != null) {
-                    val l = mono[0] * sr + mono[1] * sg + mono[2] * sb
-                    sr = l; sg = l; sb = l
-                } else if (sim.saturation != 1f) {
-                    val l = luma(sr, sg, sb)
-                    sr = l + (sr - l) * sim.saturation
-                    sg = l + (sg - l) * sim.saturation
-                    sb = l + (sb - l) * sim.saturation
-                }
-                if (sim.contrast != 0f) {
-                    sr = sCurve(sr, sim.contrast); sg = sCurve(sg, sim.contrast); sb = sCurve(sb, sim.contrast)
-                }
-                if (sim.toe > 0f) {
-                    sr = sim.toe + sr * (1f - sim.toe)
-                    sg = sim.toe + sg * (1f - sim.toe)
-                    sb = sim.toe + sb * (1f - sim.toe)
-                }
+                // 2. film simulation (OKLab: tone and colour handled separately)
+                filmLook(r, g, b, sim, lab, rgbTmp)
+                var sr = rgbTmp[0]
+                var sg = rgbTmp[1]
+                var sb = rgbTmp[2]
                 val tl = luma(sr, sg, sb).coerceIn(0f, 1f)
-                val sw = (1f - tl) * (1f - tl) * 2f
-                val hw = tl * tl * 2f
-                sr += st[0] * sw + ht[0] * hw
-                sg += st[1] * sw + ht[1] * hw
-                sb += st[2] * sw + ht[2] * hw
                 if (sim.sepia) {
                     val k = 4f * tl * (1f - tl) + 0.25f
                     sr += 0.06f * k; sg += 0.015f * k; sb -= 0.06f * k
@@ -488,6 +459,65 @@ object ImageEngine {
                 i++
             }
         }
+    }
+
+    /**
+     * Applies a film simulation to one gamma-encoded pixel; the result (gamma) goes in [out].
+     * Tone: shadows and highlights get their own hardness on OKLab lightness.
+     * Colour: overall and midtone saturation, per-hue turns/saturation/brightness, tints.
+     */
+    private fun filmLook(r: Float, g: Float, b: Float, sim: FilmSim, lab: FloatArray, out: FloatArray) {
+        val mono = sim.mono
+        val L: Float
+        var a: Float
+        var bb: Float
+        if (mono != null) {
+            val l = mono[0] * lin(r) + mono[1] * lin(g) + mono[2] * lin(b)
+            L = Math.cbrt(l.coerceAtLeast(0f).toDouble()).toFloat() // OKLab L of a grey
+            a = 0f; bb = 0f
+        } else {
+            toOklab(lin(r), lin(g), lin(b), lab)
+            L = lab[0]; a = lab[1]; bb = lab[2]
+        }
+        val x = L.coerceIn(0f, 1f)
+        var L2 = if (x < 0.5f) 0.5f * (x / 0.5f).pow(1f + sim.shadowTone)
+        else 1f - 0.5f * ((1f - x) / 0.5f).pow(1f + sim.highlightTone)
+        if (mono == null) {
+            val c = sqrt(a * a + bb * bb)
+            var sat = sim.saturation
+            if (sim.midSat != 0f) sat *= 1f + sim.midSat * 4f * L2 * (1f - L2) - sim.midSat * 0.5f
+            // Keep colour in step with the new brightness a little, like film does.
+            sat *= sqrt(((L2 + 0.05f) / (L + 0.05f)).coerceIn(0.7f, 1.4f))
+            if (sim.bands.isNotEmpty() && c > 1e-4f) {
+                var hue = Math.toDegrees(atan2(bb, a).toDouble()).toFloat()
+                if (hue < 0f) hue += 360f
+                val strength = (c / 0.04f).coerceIn(0f, 1f)
+                var dH = 0f
+                var dL = 0f
+                for (band in sim.bands) {
+                    var d = abs(hue - band.center) % 360f
+                    if (d > 180f) d = 360f - d
+                    val wt = (1f - d / band.width).coerceIn(0f, 1f) * strength
+                    if (wt <= 0f) continue
+                    dH += wt * band.shift
+                    sat *= 1f + wt * (band.sat - 1f)
+                    dL += wt * band.lum
+                }
+                val c2 = c * sat
+                val h2 = Math.toRadians((hue + dH).toDouble())
+                a = (c2 * kotlin.math.cos(h2)).toFloat()
+                bb = (c2 * kotlin.math.sin(h2)).toFloat()
+                L2 += dL
+            } else {
+                a *= sat; bb *= sat
+            }
+            val sw = (1f - L2 / 0.5f).coerceIn(0f, 1f).let { it * it } * 2f
+            val hw = ((L2 - 0.5f) / 0.5f).coerceIn(0f, 1f).let { it * it } * 2f
+            a += sim.shadowTint[0] * sw + sim.highlightTint[0] * hw
+            bb += sim.shadowTint[1] * sw + sim.highlightTint[1] * hw
+        }
+        fromOklab(L2, a, bb, out)
+        out[0] = enc(out[0]); out[1] = enc(out[1]); out[2] = enc(out[2])
     }
 
     // ------------------------------------------------------------- detail pass
