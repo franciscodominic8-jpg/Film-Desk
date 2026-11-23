@@ -33,6 +33,13 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -117,8 +124,11 @@ fun ExportScreen(vm: EditorViewModel) {
 
     var savePreset by remember { mutableStateOf(false) }
     var deletePreset by remember { mutableStateOf<ExportPreset?>(null) }
+    var sheet by remember { mutableStateOf<String?>(null) }
+    var before by remember { mutableStateOf<ExportSettings?>(null) }
+    fun open(id: String) { before = vm.exportSettings; sheet = id }
 
-    Column(Modifier.fillMaxSize()) {
+    Column(Modifier.fillMaxSize().background(Color.Black)) {
         Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 16.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = { vm.back() }) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = FD.Text)
@@ -134,177 +144,50 @@ fun ExportScreen(vm: EditorViewModel) {
             Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 14.dp, vertical = 6.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+                .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            val mod = Modifier.fillMaxWidth().widthIn(max = 720.dp)
-            if (batch) BatchSummary(vm, mod) else Summary(vm, s, mod)
+            val mod = Modifier.fillMaxWidth().widthIn(max = 720.dp).padding(horizontal = 16.dp)
+            if (batch) BatchSummary(vm, mod.padding(vertical = 8.dp)) else Summary(vm, s, mod.padding(vertical = 8.dp))
             Presets(vm, s, mod, onSave = { savePreset = true }, onDelete = { deletePreset = it })
-
-            Section("File type", mod) {
-                val formats = ExportFormat.entries.filter { it != ExportFormat.HEIF || Build.VERSION.SDK_INT >= Build.VERSION_CODES.P }
-                Segmented(formats.map { it.label }, formats.indexOf(s.format)) { i -> set { it.copy(format = formats[i]) } }
-                if (s.format == ExportFormat.WEBP) {
-                    SwitchLine("Lossless", "Bigger file, no quality loss", s.webpLossless) { on -> set { it.copy(webpLossless = on) } }
-                }
-                if (s.format == ExportFormat.PNG) Note("PNG is always lossless.")
-                if (s.format == ExportFormat.HEIF) Note("Smaller files at the same quality.")
-                if (!s.canWriteMetadata) Note("Metadata (camera info, copyright, recipe) is saved in JPEG files only.")
-                if (s.lossy) {
-                    LabeledSlider(
-                        label = "Quality", value = s.quality.toFloat(), range = 10f..100f, display = s.quality.toString(),
-                        changed = true, onChange = { v -> set { it.copy(quality = v.roundToInt()) } }, onDone = {},
-                    )
-                }
-                if (s.canLimitSize) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text("Limit file size", color = FD.Text, fontSize = 14.sp)
-                            Text("Highest quality that fits", color = FD.Muted, fontSize = 12.sp)
-                        }
-                        NumberField(
-                            value = s.limitMb.let { if (it == it.roundToInt().toFloat()) it.roundToInt().toString() else it.toString() },
-                            suffix = "MB", width = 96, decimal = true, enabled = s.limitSize, min = 0.1f,
-                        ) { txt -> txt.toFloatOrNull()?.let { v -> set { it.copy(limitMb = v.coerceIn(0.1f, 100f)) } } }
-                        Spacer(Modifier.width(8.dp))
-                        FdSwitch(s.limitSize) { on -> set { it.copy(limitSize = on) } }
-                    }
-                }
-            }
-
-            Section("Size", mod) {
-                ChipRow(SizeMode.entries.map { it.label }, SizeMode.entries.indexOf(s.sizeMode)) { i -> set { it.copy(sizeMode = SizeMode.entries[i]) } }
-                if (s.sizeMode != SizeMode.Full) {
-                    val (value, suffix, quick) = when (s.sizeMode) {
-                        SizeMode.LongEdge -> Triple(s.longEdge, "px", listOf(1080, 2048, 4096))
-                        SizeMode.ShortEdge -> Triple(s.shortEdge, "px", listOf(1080, 2048, 4096))
-                        SizeMode.Megapixels -> Triple(s.megapixels, "MP", listOf(8, 12, 24))
-                        else -> Triple(s.percent, "%", listOf(25, 50, 75))
-                    }
-                    fun setValue(v: Int) = set {
-                        when (it.sizeMode) {
-                            SizeMode.LongEdge -> it.copy(longEdge = v.coerceIn(64, 16000))
-                            SizeMode.ShortEdge -> it.copy(shortEdge = v.coerceIn(64, 16000))
-                            SizeMode.Megapixels -> it.copy(megapixels = v.coerceIn(1, 200))
-                            else -> it.copy(percent = v.coerceIn(1, 100))
-                        }
-                    }
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        val min = if (s.sizeMode == SizeMode.LongEdge || s.sizeMode == SizeMode.ShortEdge) 64f else 1f
-                        NumberField(value.toString(), suffix, width = 120, key = s.sizeMode.name, min = min) { txt ->
-                            txt.toIntOrNull()?.let(::setValue)
-                        }
-                        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            quick.forEach { q -> Pill(q.toString(), selected = value == q, onClick = { setValue(q) }) }
-                        }
-                    }
-                }
-                if (!batch) {
-                    val sizes = vm.fullSizes()
-                    val out = vm.exportSize()
-                    if (sizes != null && out != null) {
-                        Text(
-                            "Output ${out.first} × ${out.second} · from ${sizes.first.first} × ${sizes.first.second}",
-                            color = FD.Muted, fontSize = 11.sp, fontFamily = FD.Mono,
-                        )
-                    }
-                } else {
-                    Note("Each photo is sized from its own crop. Photos are never made larger.")
-                }
-            }
-
-            Section("Output sharpening", mod) {
-                Segmented(Sharpen.entries.map { it.label }, Sharpen.entries.indexOf(s.sharpen)) { i -> set { it.copy(sharpen = Sharpen.entries[i]) } }
-                if (s.sharpen != Sharpen.Off) {
-                    Segmented(SHARPEN_LEVELS, s.sharpenLevel) { i -> set { it.copy(sharpenLevel = i) } }
-                    Note(
-                        when (s.sharpen) {
-                            Sharpen.Screen -> "For phones, computers and social media."
-                            Sharpen.Matte -> "For prints on matte paper."
-                            else -> "For prints on glossy paper."
-                        }
-                    )
-                }
-            }
-
-            Section("Metadata", mod) {
-                if (!s.canWriteMetadata) {
-                    Note("${s.format.label} files are saved without metadata. Choose JPEG to keep camera info, copyright and the recipe.")
-                } else {
-                    Segmented(MetadataMode.entries.map { it.label }, MetadataMode.entries.indexOf(s.metadata)) { i ->
-                        set { it.copy(metadata = MetadataMode.entries[i]) }
-                    }
-                    if (s.metadata == MetadataMode.All) {
-                        SwitchLine("Camera info", "Camera, lens, ISO, shutter, date", s.cameraInfo) { on -> set { it.copy(cameraInfo = on) } }
-                        SwitchLine("Location", "GPS from the original", s.keepLocation, ::setKeepLocation)
-                        SwitchLine("Embed recipe", "Re-import the look later", s.embedRecipe) { on -> set { it.copy(embedRecipe = on) } }
-                    }
-                    if (s.metadata != MetadataMode.None) {
-                        TextLine("Copyright / author", s.copyright, "© Your Name") { t -> set { it.copy(copyright = t.take(120)) } }
-                    } else {
-                        Note("No camera details, location or copyright are saved in the file.")
-                    }
-                }
-            }
-
-            Section("Save to", mod) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Pictures/FilmDesk/", color = FD.Muted, fontSize = 14.sp)
-                    OutlinedTextField(
-                        value = s.folder,
-                        // Spaces are fine while typing; the name is tidied when saving.
-                        onValueChange = { t -> set { it.copy(folder = t.replace(Regex("[^\\p{L}\\p{N} _-]"), "").take(40)) } },
-                        singleLine = true,
-                        placeholder = { Text("(no subfolder)", color = FD.Line) },
-                        colors = fieldColors(),
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-            }
-
-            Section("Watermark", mod) {
-                SwitchLine("Watermark", "Your name or © on the photo", s.watermark) { on -> set { it.copy(watermark = on) } }
-                if (s.watermark) {
-                    WatermarkPreview(vm, s)
-                    TextLine("Text", s.wmText, "© Your Name") { t -> set { it.copy(wmText = t.take(80)) } }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text("Position", color = FD.Text, fontSize = 14.sp)
-                            Text(POSITIONS[s.wmPos], color = FD.Muted, fontSize = 12.sp)
-                        }
-                        PositionGrid(s.wmPos) { i -> set { it.copy(wmPos = i) } }
-                    }
-                    LabeledSlider(
-                        label = "Size", value = s.wmSize.toFloat(), range = 2f..12f, steps = 9, display = "${s.wmSize}%",
-                        changed = true, onChange = { v -> set { it.copy(wmSize = v.roundToInt()) } }, onDone = {},
-                    )
-                    LabeledSlider(
-                        label = "Opacity", value = s.wmOpacity.toFloat(), range = 10f..100f, display = "${s.wmOpacity}%",
-                        changed = true, onChange = { v -> set { it.copy(wmOpacity = v.roundToInt()) } }, onDone = {},
-                    )
-                    ChipRow(WATERMARK_COLORS, s.wmColor) { i -> set { it.copy(wmColor = i) } }
-                }
-            }
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(10.dp))
+            val rowMod = Modifier.fillMaxWidth().widthIn(max = 720.dp)
+            SettingRow("File type", fileTypeSummary(s), rowMod) { open("File type") }
+            SettingRow("Size", sizeSummary(s), rowMod) { open("Size") }
+            SettingRow(
+                "Limit file size",
+                if (!s.canLimitSize) "—" else if (s.limitSize) "${trimMb(s.limitMb)} MB" else "Off",
+                rowMod, enabled = s.canLimitSize,
+            ) { open("Limit file size") }
+            SettingRow("Output sharpening", if (s.sharpen == Sharpen.Off) "Off" else "${s.sharpen.label} · ${SHARPEN_LEVELS[s.sharpenLevel]}", rowMod) { open("Output sharpening") }
+            SettingRow(
+                "Metadata",
+                if (!s.canWriteMetadata) "None (${s.format.label})"
+                else s.metadata.label + (if (s.metadata != MetadataMode.None && s.copyright.isNotBlank()) " · ${s.copyright}" else ""),
+                rowMod,
+            ) { open("Metadata") }
+            SettingRow("Save to", "Pictures/${s.folderPath}", rowMod) { open("Save to") }
+            SettingRow("Watermark", if (s.watermark) s.wmText.ifBlank { "© Your Name" } else "Off", rowMod) { open("Watermark") }
+            Spacer(Modifier.height(8.dp))
         }
 
         // Share / Save
         Row(
-            Modifier.fillMaxWidth().background(FD.Panel).padding(horizontal = 16.dp, vertical = 10.dp),
+            Modifier.fillMaxWidth().background(Color.Black).padding(horizontal = 16.dp, vertical = 10.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (!batch) {
                 OutlinedButton(
                     onClick = { vm.export(share = true) }, enabled = !vm.exporting,
+                    shape = RoundedCornerShape(50),
                     modifier = Modifier.weight(1f).height(48.dp),
                 ) { Text("Share", color = FD.Text) }
             }
             Button(
                 onClick = ::save, enabled = !vm.exporting,
                 colors = ButtonDefaults.buttonColors(containerColor = FD.Amber, contentColor = FD.OnAmber),
+                shape = RoundedCornerShape(50),
                 modifier = Modifier.weight(2f).height(48.dp),
             ) {
                 if (vm.exporting) {
@@ -349,6 +232,202 @@ fun ExportScreen(vm: EditorViewModel) {
             containerColor = FD.Surface,
         )
     }
+
+    sheet?.let { id ->
+        val d = ExportSettings()
+        ExportSheet(
+            title = id,
+            onCancel = { before?.let { vm.exportSettings = it }; sheet = null },
+            onReset = {
+                set {
+                    when (id) {
+                        "File type" -> it.copy(format = d.format, quality = d.quality, webpLossless = d.webpLossless, limitSize = d.limitSize, limitMb = d.limitMb)
+                        "Size" -> it.copy(sizeMode = d.sizeMode, longEdge = d.longEdge, shortEdge = d.shortEdge, megapixels = d.megapixels, percent = d.percent)
+                        "Limit file size" -> it.copy(limitSize = d.limitSize, limitMb = d.limitMb)
+                        "Output sharpening" -> it.copy(sharpen = d.sharpen, sharpenLevel = d.sharpenLevel)
+                        "Metadata" -> it.copy(metadata = d.metadata, cameraInfo = d.cameraInfo, keepLocation = d.keepLocation, embedRecipe = d.embedRecipe, copyright = d.copyright)
+                        "Save to" -> it.copy(folder = d.folder)
+                        else -> it.copy(watermark = d.watermark, wmText = d.wmText, wmPos = d.wmPos, wmSize = d.wmSize, wmOpacity = d.wmOpacity, wmColor = d.wmColor)
+                    }
+                }
+            },
+            onDone = { sheet = null },
+        ) {
+            when (id) {
+                "File type" -> {
+
+                        val formats = ExportFormat.entries.filter { it != ExportFormat.HEIF || Build.VERSION.SDK_INT >= Build.VERSION_CODES.P }
+                        Segmented(formats.map { it.label }, formats.indexOf(s.format)) { i -> set { it.copy(format = formats[i]) } }
+                        if (s.format == ExportFormat.WEBP) {
+                            SwitchLine("Lossless", "Bigger file, no quality loss", s.webpLossless) { on -> set { it.copy(webpLossless = on) } }
+                        }
+                        if (s.format == ExportFormat.PNG) Note("PNG is always lossless.")
+                        if (s.format == ExportFormat.HEIF) Note("Smaller files at the same quality.")
+                        if (!s.canWriteMetadata) Note("Metadata (camera info, copyright, recipe) is saved in JPEG files only.")
+                        if (s.lossy) {
+                            BigValue("Quality", s.quality.toString(), true)
+                            TickSlider(
+                                s.quality.toFloat(), 10f, 100f, 1f,
+                                onChange = { v -> set { it.copy(quality = v.roundToInt()) } },
+                                origin = 10f, minLabel = "10", maxLabel = "100", description = "Quality",
+                            )
+                        }
+                        if (s.canLimitSize) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text("Limit file size", color = FD.Text, fontSize = 14.sp)
+                                    Text("Highest quality that fits", color = FD.Muted, fontSize = 12.sp)
+                                }
+                                NumberField(
+                                    value = s.limitMb.let { if (it == it.roundToInt().toFloat()) it.roundToInt().toString() else it.toString() },
+                                    suffix = "MB", width = 96, decimal = true, enabled = s.limitSize, min = 0.1f,
+                                ) { txt -> txt.toFloatOrNull()?.let { v -> set { it.copy(limitMb = v.coerceIn(0.1f, 100f)) } } }
+                                Spacer(Modifier.width(8.dp))
+                                FdSwitch(s.limitSize) { on -> set { it.copy(limitSize = on) } }
+                            }
+                        }
+            
+                }
+                "Size" -> {
+
+                        ChipRow(SizeMode.entries.map { it.label }, SizeMode.entries.indexOf(s.sizeMode)) { i -> set { it.copy(sizeMode = SizeMode.entries[i]) } }
+                        if (s.sizeMode != SizeMode.Full) {
+                            val (value, suffix, quick) = when (s.sizeMode) {
+                                SizeMode.LongEdge -> Triple(s.longEdge, "px", listOf(1080, 2048, 4096))
+                                SizeMode.ShortEdge -> Triple(s.shortEdge, "px", listOf(1080, 2048, 4096))
+                                SizeMode.Megapixels -> Triple(s.megapixels, "MP", listOf(8, 12, 24))
+                                else -> Triple(s.percent, "%", listOf(25, 50, 75))
+                            }
+                            fun setValue(v: Int) = set {
+                                when (it.sizeMode) {
+                                    SizeMode.LongEdge -> it.copy(longEdge = v.coerceIn(64, 16000))
+                                    SizeMode.ShortEdge -> it.copy(shortEdge = v.coerceIn(64, 16000))
+                                    SizeMode.Megapixels -> it.copy(megapixels = v.coerceIn(1, 200))
+                                    else -> it.copy(percent = v.coerceIn(1, 100))
+                                }
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                val min = if (s.sizeMode == SizeMode.LongEdge || s.sizeMode == SizeMode.ShortEdge) 64f else 1f
+                                NumberField(value.toString(), suffix, width = 120, key = s.sizeMode.name, min = min) { txt ->
+                                    txt.toIntOrNull()?.let(::setValue)
+                                }
+                                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    quick.forEach { q -> Pill(q.toString(), selected = value == q, onClick = { setValue(q) }) }
+                                }
+                            }
+                        }
+                        if (!batch) {
+                            val sizes = vm.fullSizes()
+                            val out = vm.exportSize()
+                            if (sizes != null && out != null) {
+                                Text(
+                                    "Output ${out.first} × ${out.second} · from ${sizes.first.first} × ${sizes.first.second}",
+                                    color = FD.Muted, fontSize = 11.sp, fontFamily = FD.Mono,
+                                )
+                            }
+                        } else {
+                            Note("Each photo is sized from its own crop. Photos are never made larger.")
+                        }
+            
+                }
+                "Limit file size" -> {
+                    if (!s.canLimitSize) Note("Only JPEG and lossy WebP can be limited to a file size.")
+                        if (s.canLimitSize) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text("Limit file size", color = FD.Text, fontSize = 14.sp)
+                                    Text("Highest quality that fits", color = FD.Muted, fontSize = 12.sp)
+                                }
+                                NumberField(
+                                    value = s.limitMb.let { if (it == it.roundToInt().toFloat()) it.roundToInt().toString() else it.toString() },
+                                    suffix = "MB", width = 96, decimal = true, enabled = s.limitSize, min = 0.1f,
+                                ) { txt -> txt.toFloatOrNull()?.let { v -> set { it.copy(limitMb = v.coerceIn(0.1f, 100f)) } } }
+                                Spacer(Modifier.width(8.dp))
+                                FdSwitch(s.limitSize) { on -> set { it.copy(limitSize = on) } }
+                            }
+                        }
+            
+                }
+                "Output sharpening" -> {
+
+                        Segmented(Sharpen.entries.map { it.label }, Sharpen.entries.indexOf(s.sharpen)) { i -> set { it.copy(sharpen = Sharpen.entries[i]) } }
+                        if (s.sharpen != Sharpen.Off) {
+                            Segmented(SHARPEN_LEVELS, s.sharpenLevel) { i -> set { it.copy(sharpenLevel = i) } }
+                            Note(
+                                when (s.sharpen) {
+                                    Sharpen.Screen -> "For phones, computers and social media."
+                                    Sharpen.Matte -> "For prints on matte paper."
+                                    else -> "For prints on glossy paper."
+                                }
+                            )
+                        }
+            
+                }
+                "Metadata" -> {
+
+                        if (!s.canWriteMetadata) {
+                            Note("${s.format.label} files are saved without metadata. Choose JPEG to keep camera info, copyright and the recipe.")
+                        } else {
+                            Segmented(MetadataMode.entries.map { it.label }, MetadataMode.entries.indexOf(s.metadata)) { i ->
+                                set { it.copy(metadata = MetadataMode.entries[i]) }
+                            }
+                            if (s.metadata == MetadataMode.All) {
+                                SwitchLine("Camera info", "Camera, lens, ISO, shutter, date", s.cameraInfo) { on -> set { it.copy(cameraInfo = on) } }
+                                SwitchLine("Location", "GPS from the original", s.keepLocation, ::setKeepLocation)
+                                SwitchLine("Embed recipe", "Re-import the look later", s.embedRecipe) { on -> set { it.copy(embedRecipe = on) } }
+                            }
+                            if (s.metadata != MetadataMode.None) {
+                                TextLine("Copyright / author", s.copyright, "© Your Name") { t -> set { it.copy(copyright = t.take(120)) } }
+                            } else {
+                                Note("No camera details, location or copyright are saved in the file.")
+                            }
+                        }
+            
+                }
+                "Save to" -> {
+
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Pictures/FilmDesk/", color = FD.Muted, fontSize = 14.sp)
+                            OutlinedTextField(
+                                value = s.folder,
+                                // Spaces are fine while typing; the name is tidied when saving.
+                                onValueChange = { t -> set { it.copy(folder = t.replace(Regex("[^\\p{L}\\p{N} _-]"), "").take(40)) } },
+                                singleLine = true,
+                                placeholder = { Text("(no subfolder)", color = FD.Line) },
+                                colors = fieldColors(),
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+            
+                }
+                else -> {
+
+                        SwitchLine("Watermark", "Your name or © on the photo", s.watermark) { on -> set { it.copy(watermark = on) } }
+                        if (s.watermark) {
+                            WatermarkPreview(vm, s)
+                            TextLine("Text", s.wmText, "© Your Name") { t -> set { it.copy(wmText = t.take(80)) } }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text("Position", color = FD.Text, fontSize = 14.sp)
+                                    Text(POSITIONS[s.wmPos], color = FD.Muted, fontSize = 12.sp)
+                                }
+                                PositionGrid(s.wmPos) { i -> set { it.copy(wmPos = i) } }
+                            }
+                            LabeledSlider(
+                                label = "Size", value = s.wmSize.toFloat(), range = 2f..12f, steps = 9, display = "${s.wmSize}%",
+                                changed = true, onChange = { v -> set { it.copy(wmSize = v.roundToInt()) } }, onDone = {},
+                            )
+                            LabeledSlider(
+                                label = "Opacity", value = s.wmOpacity.toFloat(), range = 10f..100f, display = "${s.wmOpacity}%",
+                                changed = true, onChange = { v -> set { it.copy(wmOpacity = v.roundToInt()) } }, onDone = {},
+                            )
+                            ChipRow(WATERMARK_COLORS, s.wmColor) { i -> set { it.copy(wmColor = i) } }
+                        }
+            
+                }
+            }
+        }
+    }
 }
 
 private val POSITIONS = listOf(
@@ -376,7 +455,7 @@ private fun presetSummary(s: ExportSettings): String = buildString {
 @Composable
 private fun Summary(vm: EditorViewModel, s: ExportSettings, modifier: Modifier) {
     Row(modifier, verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(width = 104.dp, height = 70.dp).clip(RoundedCornerShape(8.dp)).background(FD.Surface)) {
+        Box(Modifier.size(width = 96.dp, height = 72.dp).clip(RoundedCornerShape(6.dp)).background(FD.Surface)) {
             // In the Crop tab the preview is the uncropped photo, so use the saved Studio thumbnail.
             val thumb = if (vm.tab == EditorTab.Crop) vm.currentId?.let { vm.studioThumbs[it] } ?: vm.preview else vm.preview
             thumb?.let { b ->
@@ -386,7 +465,7 @@ private fun Summary(vm: EditorViewModel, s: ExportSettings, modifier: Modifier) 
         }
         Spacer(Modifier.width(12.dp))
         Column {
-            Text(FILM_SIMS[vm.params.sim].name, color = FD.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+            Text(FILM_SIMS[vm.params.sim].name, color = FD.Text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
             val out = vm.exportSize(s)
             val fmt = s.format.label + if (s.lossy) " ${s.quality}" else ""
             Text(
@@ -420,43 +499,120 @@ private fun BatchSummary(vm: EditorViewModel, modifier: Modifier) {
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun Presets(vm: EditorViewModel, s: ExportSettings, modifier: Modifier, onSave: () -> Unit, onDelete: (ExportPreset) -> Unit) {
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            SectionLabel("Presets", Modifier.weight(1f))
-            Text(
-                "+ Save current", color = FD.Amber, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.clip(RoundedCornerShape(6.dp)).clickable(onClick = onSave).padding(6.dp),
-            )
-        }
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             (BUILT_IN_PRESETS + vm.exportPresets).forEach { p ->
                 val on = p.matches(s)
-                Column(
-                    Modifier
-                        .width(104.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(if (on) FD.AmberDim else FD.Surface)
-                        .border(if (on) 2.dp else 1.dp, if (on) FD.Amber else FD.Line, RoundedCornerShape(12.dp))
+                Text(
+                    p.name,
+                    color = if (on) FD.Bg else FD.Text, fontSize = 13.sp,
+                    fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(if (on) FD.Text else Color.Transparent)
+                        .border(1.dp, if (on) FD.Text else FD.Line, RoundedCornerShape(50))
                         .combinedClickable(
                             onClickLabel = "Use ${p.name}",
                             onLongClickLabel = if (p.builtIn) null else "Delete ${p.name}",
                             onClick = { vm.applyExportPreset(p) },
                             onLongClick = if (p.builtIn) null else ({ onDelete(p) }),
                         )
-                        .padding(horizontal = 10.dp, vertical = 8.dp),
-                ) {
-                    Text(p.name, color = FD.Text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(
-                        p.detail.ifEmpty { "My preset" }, color = FD.Muted, fontSize = 10.5.sp, maxLines = 1,
-                    )
-                }
+                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                )
             }
+            Text(
+                "+ Save", color = FD.Amber, fontSize = 13.sp, maxLines = 1,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(50))
+                    .border(1.dp, FD.Amber.copy(alpha = 0.6f), RoundedCornerShape(50))
+                    .clickable(onClickLabel = "Save current settings as a preset", onClick = onSave)
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+            )
         }
         if (vm.exportPresets.isNotEmpty()) Text("Long-press your own preset to delete it.", color = FD.Muted, fontSize = 11.sp)
     }
 }
 
 // ------------------------------------------------------------------ small building blocks
+
+private fun trimMb(v: Float): String = if (v == v.roundToInt().toFloat()) v.roundToInt().toString() else v.toString()
+
+private fun fileTypeSummary(s: ExportSettings): String = when {
+    s.format == ExportFormat.PNG -> "PNG"
+    s.format == ExportFormat.WEBP && s.webpLossless -> "WebP · lossless"
+    else -> "${s.format.label} · ${s.quality}"
+}
+
+private fun sizeSummary(s: ExportSettings): String = when (s.sizeMode) {
+    SizeMode.Full -> "Full size"
+    SizeMode.LongEdge -> "Long edge · ${s.longEdge} px"
+    SizeMode.ShortEdge -> "Short edge · ${s.shortEdge} px"
+    SizeMode.Megapixels -> "${s.megapixels} MP"
+    SizeMode.Percent -> "${s.percent}%"
+}
+
+/** One line of the export list: name on the left, current value and › on the right. */
+@Composable
+private fun SettingRow(title: String, value: String, modifier: Modifier, enabled: Boolean = true, onClick: () -> Unit) {
+    Column(modifier) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .height(52.dp)
+                .clickable(enabled = enabled, onClickLabel = title, onClick = onClick)
+                .padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(title, color = if (enabled) FD.Text else FD.Muted, fontSize = 15.sp, modifier = Modifier.weight(1f))
+            Text(
+                value, color = FD.Muted, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.widthIn(max = 200.dp),
+            )
+            Spacer(Modifier.width(6.dp))
+            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = FD.Muted, modifier = Modifier.size(18.dp))
+        }
+        androidx.compose.material3.HorizontalDivider(color = FD.Line.copy(alpha = 0.6f), thickness = 0.5.dp)
+    }
+}
+
+/** Bottom sheet for one export setting, with ✕ (undo changes) · Reset · ✓. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ExportSheet(
+    title: String,
+    onCancel: () -> Unit,
+    onReset: () -> Unit,
+    onDone: () -> Unit,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDone,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        containerColor = FD.Surface,
+    ) {
+        Column(Modifier.fillMaxWidth().navigationBarsPadding()) {
+            Text(
+                title.uppercase(), color = FD.Muted, fontSize = 12.sp, fontFamily = FD.Mono, letterSpacing = 2.sp,
+                modifier = Modifier.align(Alignment.CenterHorizontally),
+            )
+            Column(
+                Modifier
+                    .weight(1f, fill = false)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 18.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) { content() }
+            androidx.compose.material3.HorizontalDivider(color = FD.Line, thickness = 0.5.dp)
+            Row(Modifier.fillMaxWidth().height(52.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onCancel) { Icon(Icons.Filled.Close, contentDescription = "Cancel", tint = FD.Text) }
+                Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                    TextButton(onClick = onReset) { Text("Reset", color = FD.Muted) }
+                }
+                IconButton(onClick = onDone) { Icon(Icons.Filled.Check, contentDescription = "Done", tint = FD.Amber) }
+            }
+        }
+    }
+}
 
 @Composable
 private fun Section(title: String, modifier: Modifier, content: @Composable ColumnScope.() -> Unit) {

@@ -83,6 +83,10 @@ import com.filmdesk.app.model.DEFAULT_PASTE_PARTS
 import com.filmdesk.app.model.FILM_SIMS
 import com.filmdesk.app.model.PastePart
 import com.filmdesk.app.model.copySummary
+import com.filmdesk.app.model.simCode
+import androidx.compose.material.icons.filled.MoreHoriz
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import com.filmdesk.app.ui.theme.FD
 
 private enum class StudioFilter(val label: String) { All("All"), Edited("Edited"), NotEdited("Not edited") }
@@ -100,7 +104,7 @@ fun StudioScreen(vm: EditorViewModel) {
         StudioFilter.NotEdited -> all.filterNot { it.edited }
     }
 
-    BoxWithConstraints(Modifier.fillMaxSize()) {
+    BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black)) {
         val cols = when {
             maxWidth >= 840.dp -> 6
             maxWidth >= 600.dp -> 5
@@ -126,21 +130,27 @@ fun StudioScreen(vm: EditorViewModel) {
             }
 
             Row(
-                Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, top = 2.dp, bottom = 10.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 0.dp, bottom = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(18.dp),
             ) {
-                val edited = all.count { it.edited }
                 StudioFilter.entries.forEach { f ->
-                    val n = when (f) {
-                        StudioFilter.All -> all.size
-                        StudioFilter.Edited -> edited
-                        StudioFilter.NotEdited -> all.size - edited
+                    val sel = filter == f
+                    Column(
+                        Modifier.clickable(onClickLabel = f.label) {
+                            // Photos hidden by the filter must not stay selected.
+                            if (filter != f) vm.clearSelection()
+                            filter = f
+                        }.padding(vertical = 4.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Text(
+                            f.label, fontSize = 13.sp,
+                            color = if (sel) FD.Text else FD.Muted,
+                            fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Normal,
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Box(Modifier.width(18.dp).height(2.dp).background(if (sel) FD.Text else Color.Transparent))
                     }
-                    Pill("${f.label} · $n", selected = filter == f, onClick = {
-                        // Photos hidden by the filter must not stay selected.
-                        if (filter != f) vm.clearSelection()
-                        filter = f
-                    })
                 }
             }
 
@@ -151,29 +161,15 @@ fun StudioScreen(vm: EditorViewModel) {
                         color = FD.Muted, modifier = Modifier.padding(24.dp),
                     )
                 }
+                // Edge to edge, 2 dp gaps, like VSCO.
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(cols),
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(start = 3.dp, end = 3.dp, bottom = 96.dp),
+                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                    contentPadding = PaddingValues(bottom = 24.dp),
                 ) {
                     items(shown, key = { it.id }) { item -> StudioCell(vm, item) }
-                }
-                if (!vm.selecting) {
-                    Row(
-                        Modifier
-                            .align(Alignment.BottomEnd)
-                            .padding(18.dp)
-                            .height(56.dp)
-                            .clip(RoundedCornerShape(18.dp))
-                            .background(FD.Amber)
-                            .clickable { vm.navigate(Screen.Import) }
-                            .padding(start = 16.dp, end = 22.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(Icons.Filled.Add, contentDescription = null, tint = FD.OnAmber)
-                        Spacer(Modifier.width(8.dp))
-                        Text("Import", color = FD.OnAmber, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
-                    }
                 }
             }
 
@@ -196,18 +192,40 @@ fun StudioScreen(vm: EditorViewModel) {
 
 @Composable
 private fun StudioHeader(vm: EditorViewModel) {
+    var menu by remember { mutableStateOf(false) }
     Row(
-        Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 16.dp, bottom = 10.dp),
+        Modifier.fillMaxWidth().padding(start = 16.dp, end = 12.dp, top = 12.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column(Modifier.weight(1f)) {
-            SectionLabel("Film Desk")
-            Text("Studio", color = FD.Text, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+        Text("Studio", color = FD.Text, fontSize = 22.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+        Box {
+            IconButton(onClick = { menu = true }) {
+                Icon(Icons.Filled.MoreHoriz, contentDescription = "More", tint = FD.Text)
+            }
+            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, containerColor = FD.Surface2) {
+                DropdownMenuItem(
+                    text = { Text("Recipes", color = FD.Text) },
+                    leadingIcon = { Icon(Icons.Filled.FilterVintage, contentDescription = null, tint = FD.Text) },
+                    onClick = { menu = false; vm.openRecipes() },
+                )
+                DropdownMenuItem(
+                    text = { Text("Select photos", color = FD.Text) },
+                    leadingIcon = { Icon(Icons.Filled.SelectAll, contentDescription = null, tint = FD.Text) },
+                    enabled = vm.studio.isNotEmpty(),
+                    onClick = { menu = false; vm.studio.firstOrNull()?.let { vm.toggleSelect(it.id) } },
+                )
+            }
         }
-        OutlinedButton(onClick = { vm.openRecipes() }) {
-            Icon(Icons.Filled.FilterVintage, contentDescription = null, tint = FD.Amber, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(6.dp))
-            Text("Recipes", color = FD.Text)
+        Spacer(Modifier.width(4.dp))
+        Box(
+            Modifier
+                .size(38.dp)
+                .clip(CircleShape)
+                .background(FD.Amber)
+                .clickable(onClickLabel = "Import photos") { vm.navigate(Screen.Import) },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(Icons.Filled.Add, contentDescription = "Import", tint = FD.OnAmber, modifier = Modifier.size(22.dp))
         }
     }
 }
@@ -278,7 +296,6 @@ private fun StudioCell(vm: EditorViewModel, item: StudioItem) {
     Box(
         Modifier
             .aspectRatio(1f)
-            .padding(1.5.dp)
             .background(if (selected) FD.AmberDim else Color.Transparent)
             .combinedClickable(
                 onClickLabel = if (vm.selecting) "Select" else "Edit photo",
@@ -310,22 +327,15 @@ private fun StudioCell(vm: EditorViewModel, item: StudioItem) {
             }
             val p = item.params
             if (p != null) {
-                Row(
-                    Modifier
+                Text(
+                    simCode(p.sim), color = Color.White, fontSize = 9.sp, fontFamily = FD.Mono, fontWeight = FontWeight.Bold,
+                    modifier = Modifier
                         .align(Alignment.BottomStart)
-                        .padding(5.dp)
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(Color(0xBF0B0B0C))
-                        .padding(start = 3.dp, end = 6.dp, top = 2.dp, bottom = 2.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(Icons.Filled.Tune, contentDescription = "Edited", tint = FD.Amber, modifier = Modifier.size(12.dp))
-                    Spacer(Modifier.width(3.dp))
-                    Text(
-                        FILM_SIMS[p.sim].short, color = FD.Amber, fontSize = 9.sp, fontFamily = FD.Mono,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    )
-                }
+                        .padding(4.dp)
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(Color(0x66000000))
+                        .padding(horizontal = 4.dp, vertical = 1.dp),
+                )
             }
         }
         if (copiedFrom) {
