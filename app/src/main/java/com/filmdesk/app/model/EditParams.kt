@@ -238,6 +238,3 @@ fun EditParams.summary(): String = buildString {
     if (color != 0) append("  COLOR ").append(signed(color.toFloat()))
     if (exposureThirds != 0) append("  EV ").append(formatThirds(exposureThirds))
 }
-
-fun EditParams.caption(): String =
-    FILM_SIMS[sim].name.uppercase() + "   ·   " + summary()

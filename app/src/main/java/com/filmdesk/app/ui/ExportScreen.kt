@@ -147,11 +147,6 @@ fun ExportScreen(vm: EditorViewModel) {
 
             FdCard(Modifier.fillMaxWidth().widthIn(max = 720.dp)) {
                 ToggleRow(
-                    "Film border", "White frame with the film simulation and settings",
-                    s.border, { vm.exportSettings = vm.exportSettings.copy(border = it) },
-                )
-                HorizontalDivider(color = FD.Line)
-                ToggleRow(
                     "Embed recipe in metadata", "Re-import the exact look later (JPEG only)",
                     s.embedRecipe && s.format == ExportFormat.JPEG,
                     { vm.exportSettings = vm.exportSettings.copy(embedRecipe = it) },

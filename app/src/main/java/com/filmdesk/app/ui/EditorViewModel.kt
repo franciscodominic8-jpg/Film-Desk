@@ -36,7 +36,6 @@ import com.filmdesk.app.model.lockRatio
 import com.filmdesk.app.model.rotateRect
 import com.filmdesk.app.model.withCropRect
 import com.filmdesk.app.model.pasteFrom
-import com.filmdesk.app.model.caption
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -58,7 +57,6 @@ data class ExportSettings(
     val format: ExportFormat = ExportFormat.JPEG,
     val quality: Int = 92,
     val size: Int = 0,
-    val border: Boolean = false,
     val embedRecipe: Boolean = true,
     /** Copy GPS location from the original photo (off by default for privacy). */
     val keepLocation: Boolean = false,
@@ -529,8 +527,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         val full = withContext(Dispatchers.IO) { BitmapIO.decode(ctx, uri, edge) }
             ?: error("Couldn't read the original photo")
         val st = knownStats ?: withContext(Dispatchers.Default) { ImageEngine.computeStats(full) }
-        var out = withContext(Dispatchers.Default) { ImageEngine.render(full, p, st) }
-        if (s.border) out = withContext(Dispatchers.Default) { BitmapIO.addBorder(out, p.caption()) }
+        val out = withContext(Dispatchers.Default) { ImageEngine.render(full, p, st) }
         val json = if (s.embedRecipe && s.format == ExportFormat.JPEG) p.toJson().toString() else null
         if (share) {
             withContext(Dispatchers.IO) { BitmapIO.share(ctx, out, s.format, s.quality, uri, json, s.keepLocation) }

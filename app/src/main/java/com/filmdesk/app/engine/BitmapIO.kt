@@ -108,29 +108,6 @@ object BitmapIO {
         return edge.coerceIn(1600, 8192)
     }
 
-    fun addBorder(src: Bitmap, caption: String): Bitmap {
-        val w = src.width
-        val h = src.height
-        val short = min(w, h)
-        val pad = (short * 0.04f).roundToInt()
-        val bottom = (short * 0.11f).roundToInt()
-        val out = Bitmap.createBitmap(w + pad * 2, h + pad + bottom, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(out)
-        canvas.drawColor(0xFFF4F2EC.toInt())
-        canvas.drawBitmap(src, pad.toFloat(), pad.toFloat(), null)
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = 0xFF3A3A3A.toInt()
-            textSize = bottom * 0.22f
-            typeface = Typeface.MONOSPACE
-            letterSpacing = 0.06f
-        }
-        var text = caption
-        val maxW = out.width - pad * 2f
-        while (text.length > 8 && paint.measureText(text) > maxW) text = text.dropLast(4) + "…"
-        canvas.drawText(text, pad.toFloat(), h + pad + bottom * 0.58f, paint)
-        return out
-    }
-
     /** Saves to Pictures/FilmDesk. Returns the new image's Uri, or null on failure. */
     fun saveToGallery(
         context: Context, bmp: Bitmap, format: ExportFormat, quality: Int, recipeJson: String?,
