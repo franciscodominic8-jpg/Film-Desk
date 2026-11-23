@@ -733,7 +733,7 @@ object ImageEngine {
         val tmp = FloatArray(n)
         for (plane in arrayOf(gr, gg, gb)) repeat(3) { boxF(plane, plane, sw, sh, radius, tmp) }
         // 3. Blend back (screen), reading the small map with bilinear filtering.
-        val amt = p.glow / 100f * when (style) { 1 -> 1.6f; 2 -> 0.75f; else -> 1.25f }
+        val amt = p.glow / 100f * when (style) { 1 -> 2.4f; 2 -> 0.75f; else -> 1.25f }
         val sx = (sw - 1).toFloat() / max(1, w - 1)
         val sy = (sh - 1).toFloat() / max(1, h - 1)
         for (y in 0 until h) {
