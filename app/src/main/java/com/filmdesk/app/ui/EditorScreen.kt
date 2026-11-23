@@ -116,22 +116,27 @@ fun EditorScreen(vm: EditorViewModel) {
                 }
             }
         } else {
-            val maxPanel = maxHeight * 0.46f
+            // One panel height for every tab, so the photo doesn't change size when switching
+            // tabs (the Curve screen uses the same photo size).
+            val panel = maxHeight * PANEL_FRACTION
             Column(Modifier.fillMaxSize()) {
                 EditorTopBar(vm)
                 if (vm.tab == EditorTab.Crop) CropView(vm, Modifier.weight(1f).fillMaxWidth())
                 else PreviewArea(vm, Modifier.weight(1f).fillMaxWidth())
-                BottomArea(vm, Modifier.fillMaxWidth().heightIn(max = maxPanel))
+                BottomArea(vm, Modifier.fillMaxWidth().height(panel))
                 EditorTabs(vm)
             }
         }
     }
 }
 
+/** Share of the phone screen height used by the tool panel under the photo. */
+internal const val PANEL_FRACTION = 0.44f
+
 /** Under the photo: the open option panel, or the current tab's tools. */
 @Composable
 private fun BottomArea(vm: EditorViewModel, modifier: Modifier) {
-    Box(modifier) {
+    Box(modifier, contentAlignment = Alignment.BottomCenter) {
         val sheet = vm.sheet
         when {
             sheet == null -> when (vm.tab) {
@@ -158,7 +163,7 @@ private fun EditorTopBar(vm: EditorViewModel) {
         Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        IconButton(onClick = { vm.back() }, modifier = Modifier.size(44.dp)) {
+        IconButton(onClick = { vm.leaveEditor() }, modifier = Modifier.size(44.dp)) {
             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = FD.Text)
         }
         Spacer(Modifier.weight(1f))
@@ -440,12 +445,15 @@ private fun FilmStrengthSheet(vm: EditorViewModel) {
         onDone = vm::doneSheet,
         hint = "Hold photo to compare",
     ) {
-        BigValue("${FILM_SIMS[p.sim].name} · strength", "$pct%", pct != 100)
+        BigValue("${FILM_SIMS[p.sim].name} · strength", "$pct%", pct != 100, onNudge = { k ->
+            val n = ((vm.params.simStrength * 100).roundToInt() + k).coerceIn(0, 100)
+            vm.updateParams(vm.params.copy(simStrength = n / 100f))
+        })
         TickSlider(
             pct.toFloat(), 0f, 100f, 1f,
             onChange = { vm.updateParams(vm.params.copy(simStrength = it / 100f)) },
             origin = 100f, minLabel = "0%", midLabel = null, maxLabel = "100%",
-            description = "Film strength",
+            description = "Film strength", valueText = "$pct%",
         )
     }
 }

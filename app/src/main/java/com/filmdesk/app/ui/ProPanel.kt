@@ -159,7 +159,9 @@ fun ProSheet(vm: EditorViewModel, id: String) {
                 onDone = vm::doneSheet,
                 hint = "Hold photo to compare",
             ) {
-                BigValue(s.label, fmt(v, s.min < 0), v != s.def)
+                BigValue(s.label, fmt(v, s.min < 0), v != s.def, onNudge = { k ->
+                    vm.updateParams(s.set(vm.params, (s.get(vm.params) + k).coerceIn(s.min, s.max)))
+                })
                 TickSlider(
                     v.toFloat(), s.min.toFloat(), s.max.toFloat(), 1f,
                     onChange = { vm.updateParams(s.set(vm.params, it.toInt())) },
@@ -167,7 +169,7 @@ fun ProSheet(vm: EditorViewModel, id: String) {
                     minLabel = tool.minLabel ?: fmt(s.min, s.min < 0),
                     midLabel = if (s.min < 0) "0" else null,
                     maxLabel = tool.maxLabel ?: fmt(s.max, s.min < 0),
-                    description = s.label,
+                    description = s.label, valueText = fmt(v, s.min < 0),
                 )
             }
         }
@@ -182,7 +184,10 @@ private fun SliderRow(label: String, v: Int, def: Int, min: Int, max: Int, onCha
             Text(label, color = FD.Text, fontSize = 12.sp, modifier = Modifier.weight(1f))
             Text(fmt(v, min < 0), color = if (v != def) FD.Amber else FD.Muted, fontSize = 12.sp, fontFamily = FD.Mono)
         }
-        TickSlider(v.toFloat(), min.toFloat(), max.toFloat(), 1f, onChange = { onChange(it.toInt()) }, origin = def.toFloat(), description = label)
+        TickSlider(
+            v.toFloat(), min.toFloat(), max.toFloat(), 1f, onChange = { onChange(it.toInt()) },
+            origin = def.toFloat(), description = label, valueText = fmt(v, min < 0),
+        )
     }
 }
 

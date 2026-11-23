@@ -15,7 +15,13 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.drag
+import androidx.compose.foundation.gestures.awaitHorizontalTouchSlopOrCancellation
+import androidx.compose.foundation.gestures.horizontalDrag
+import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.setProgress
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.BasicTextField
@@ -126,7 +132,7 @@ fun CurveScreen(vm: EditorViewModel) {
     BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black)) {
         val wide = maxWidth >= 600.dp
         // Same photo height as the normal editor (top bar, tool panel and tab bar taken off).
-        val photoH = (maxHeight - 48.dp - maxHeight * 0.46f - 54.dp).coerceAtLeast(150.dp)
+        val photoH = (maxHeight - 48.dp - maxHeight * PANEL_FRACTION - 54.dp).coerceAtLeast(150.dp)
         val graphH = (maxHeight - 48.dp - photoH - 52.dp).coerceIn(170.dp, 420.dp)
         Column(Modifier.fillMaxSize()) {
             CurveTopBar(vm)
@@ -331,7 +337,7 @@ private fun SoftClipSection(vm: EditorViewModel, softCh: Int, onSoftCh: (Int) ->
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             Text("Soft Clip", color = FD.Text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
             LinkButton(p.softLink, if (p.softLink) "Soft clip linked" else "Soft clip per channel") {
-                vm.change(vm.params.withSoftLink(it))
+                vm.change(vm.params.withSoftLink(it, from = softCh))
             }
             (1..3).forEach { i ->
                 val ch = i - 1
@@ -382,30 +388,48 @@ private fun ValueSliderRow(
         if (label != null) {
             Text(label, color = FD.Muted, fontSize = 12.sp, modifier = Modifier.width(72.dp))
         }
-        ThinSlider(value, range, color, onChange, onDone, Modifier.weight(1f).semantics { contentDescription = description })
+        ThinSlider(value, range, default, color, onChange, onDone, Modifier.weight(1f).semantics { contentDescription = description })
         Spacer(Modifier.width(8.dp))
         NumberBox(value, range, changed = value != default, onSet = onSet)
     }
 }
 
+/**
+ * Thin coloured slider. Only a sideways drag changes it (up/down scrolls the page), and the
+ * value moves from where it was instead of jumping to the finger. Double-tap: back to [default].
+ */
 @Composable
-private fun ThinSlider(value: Int, range: IntRange, color: Color, onChange: (Int) -> Unit, onDone: () -> Unit, modifier: Modifier) {
+private fun ThinSlider(value: Int, range: IntRange, default: Int, color: Color, onChange: (Int) -> Unit, onDone: () -> Unit, modifier: Modifier) {
     val cb by rememberUpdatedState(onChange)
     val done by rememberUpdatedState(onDone)
+    val current by rememberUpdatedState(value)
     Canvas(
         modifier
             .height(32.dp)
+            .semantics {
+                stateDescription = value.toString()
+                progressBarRangeInfo = ProgressBarRangeInfo(value.toFloat(), range.first.toFloat()..range.last.toFloat())
+                setProgress { t -> cb(t.roundToInt().coerceIn(range.first, range.last)); done(); true }
+            }
+            .pointerInput(range, default) {
+                detectTapGestures(onDoubleTap = { cb(default); done() })
+            }
             .pointerInput(range) {
                 val pad = 9.dp.toPx()
-                fun set(x: Float) {
-                    val f = ((x - pad) / (size.width - 2 * pad)).coerceIn(0f, 1f)
-                    cb((range.first + f * (range.last - range.first)).roundToInt())
-                }
                 awaitEachGesture {
-                    val down = awaitFirstDown()
-                    set(down.position.x); down.consume()
-                    drag(down.id) { ch -> set(ch.position.x); ch.consume() }
-                    done()
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    val start = current
+                    var dx = 0f
+                    val w = (size.width - 2 * pad).coerceAtLeast(1f)
+                    fun apply() {
+                        cb((start + dx / w * (range.last - range.first)).roundToInt().coerceIn(range.first, range.last))
+                    }
+                    val drag = awaitHorizontalTouchSlopOrCancellation(down.id) { ch, over -> ch.consume(); dx += over }
+                    if (drag != null) {
+                        apply()
+                        horizontalDrag(drag.id) { ch -> dx += ch.positionChange().x; ch.consume(); apply() }
+                        done()
+                    }
                 }
             }
     ) {

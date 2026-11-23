@@ -80,7 +80,9 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
     /** The studio photo open in the editor. */
     var currentId by mutableStateOf<Long?>(null); private set
     var selection by mutableStateOf<Set<Long>>(emptySet()); private set
-    val selecting: Boolean get() = selection.isNotEmpty()
+    /** "Select photos" from the menu: selection mode with nothing picked yet. */
+    private var selectMode by mutableStateOf(false)
+    val selecting: Boolean get() = selectMode || selection.isNotEmpty()
     var clipboard by mutableStateOf<CopiedEdits?>(null); private set
     /** Photos that just received pasted edits (outlined for a moment). */
     var justPasted by mutableStateOf<Set<Long>>(emptySet()); private set
@@ -120,6 +122,12 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         if (sheet != null) commit()
         sheetBefore = params
         sheet = id
+    }
+
+    /** Top-bar back arrow: keep what's in an open panel and go back to the Studio. */
+    fun leaveEditor() {
+        if (sheet != null) doneSheet()
+        back()
     }
 
     /** ✕: undo everything changed in the open panel. */
@@ -1035,7 +1043,9 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
 
     fun selectAll(ids: Collection<Long>) { selection = ids.toSet() }
 
-    fun clearSelection() { selection = emptySet() }
+    fun clearSelection() { selection = emptySet(); selectMode = false }
+
+    fun startSelecting() { selectMode = true }
 
     fun copyEdits(id: Long) {
         val item = studio.firstOrNull { it.id == id } ?: return

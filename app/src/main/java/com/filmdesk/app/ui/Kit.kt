@@ -7,7 +7,16 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.drag
+import androidx.compose.foundation.gestures.awaitHorizontalTouchSlopOrCancellation
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.horizontalDrag
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.setProgress
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -57,7 +66,11 @@ import kotlin.math.roundToInt
 
 /**
  * VSCO-style slider: thin track with tick marks, a mark at the "no change" point, an amber
- * fill from there to the value and a white knob. Drag anywhere on it; values snap to [step].
+ * fill from there to the value and a white knob.
+ *  - Only a sideways drag changes it (a touch or an up/down swipe scrolls the panel instead),
+ *    and the value moves with your finger from where it was, so it never jumps.
+ *  - Long ranges move at half speed for finer control; ‹ › next to the value nudge one step.
+ *  - Double-tap goes back to [origin].
  */
 @Composable
 fun TickSlider(
@@ -73,27 +86,48 @@ fun TickSlider(
     maxLabel: String? = null,
     color: Color = FD.Amber,
     description: String = "",
+    valueText: String? = null,
 ) {
     val cb by rememberUpdatedState(onChange)
+    val current by rememberUpdatedState(value)
     val stepsTotal = ((max - min) / step).roundToInt().coerceAtLeast(1)
     val ticks = if (stepsTotal <= 24) stepsTotal else 20
+    // Big ranges (e.g. −100…+100): a full-width drag covers half the range.
+    val speed = if (stepsTotal > 60) 0.5f else 1f
+    fun snap(v: Float): Float = (min + ((v - min) / step).roundToInt() * step).coerceIn(min, max)
     Column(modifier.fillMaxWidth()) {
         Canvas(
             Modifier
                 .fillMaxWidth()
                 .height(40.dp)
-                .semantics { contentDescription = description }
+                .semantics {
+                    contentDescription = description
+                    stateDescription = valueText ?: value.toString()
+                    progressBarRangeInfo = ProgressBarRangeInfo(value, min..max, (stepsTotal - 1).coerceAtLeast(0))
+                    setProgress { target -> cb(snap(target)); true }
+                }
+                .pointerInput(min, max, step, origin) {
+                    detectTapGestures(onDoubleTap = { cb(origin) })
+                }
                 .pointerInput(min, max, step) {
                     val pad = 14.dp.toPx()
-                    fun set(x: Float) {
-                        val f = ((x - pad) / (size.width - 2 * pad)).coerceIn(0f, 1f)
-                        val k = (f * stepsTotal).roundToInt()
-                        cb((min + k * step).coerceIn(min, max))
-                    }
                     awaitEachGesture {
-                        val down = awaitFirstDown()
-                        set(down.position.x); down.consume()
-                        drag(down.id) { ch -> set(ch.position.x); ch.consume() }
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        val start = current
+                        var dx = 0f
+                        val w = (size.width - 2 * pad).coerceAtLeast(1f)
+                        fun apply() { cb(snap(start + dx / w * (max - min) * speed)) }
+                        val drag = awaitHorizontalTouchSlopOrCancellation(down.id) { change, over ->
+                            change.consume(); dx += over
+                        }
+                        if (drag != null) {
+                            apply()
+                            horizontalDrag(drag.id) { ch ->
+                                dx += ch.positionChange().x
+                                ch.consume()
+                                apply()
+                            }
+                        }
                     }
                 },
         ) {
@@ -128,15 +162,31 @@ private fun SmallMono(text: String, modifier: Modifier, align: TextAlign) {
     Text(text, modifier = modifier, color = FD.Muted, fontSize = 10.sp, fontFamily = FD.Mono, textAlign = align, maxLines = 1)
 }
 
-/** Title + big value shown above a panel's slider ("HIGHLIGHT  −1"). */
+/**
+ * Title + big value shown above a panel's slider ("HIGHLIGHT  −1").
+ * With [onNudge], ‹ and › beside the value move it one step down / up.
+ */
 @Composable
-fun BigValue(title: String, value: String, changed: Boolean, modifier: Modifier = Modifier) {
+fun BigValue(title: String, value: String, changed: Boolean, modifier: Modifier = Modifier, onNudge: ((Int) -> Unit)? = null) {
     Column(modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
         Text(title.uppercase(), color = FD.Muted, fontSize = 11.sp, fontFamily = FD.Mono, letterSpacing = 2.sp)
-        Text(
-            value, color = if (changed) FD.Amber else FD.Text, fontSize = 22.sp,
-            fontWeight = FontWeight.SemiBold, fontFamily = FD.Mono,
-        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (onNudge != null) {
+                IconButton(onClick = { onNudge(-1) }, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "One step less", tint = FD.Muted)
+                }
+            }
+            Text(
+                value, color = if (changed) FD.Amber else FD.Text, fontSize = 22.sp,
+                fontWeight = FontWeight.SemiBold, fontFamily = FD.Mono,
+                modifier = Modifier.padding(horizontal = 6.dp),
+            )
+            if (onNudge != null) {
+                IconButton(onClick = { onNudge(1) }, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "One step more", tint = FD.Muted)
+                }
+            }
+        }
     }
 }
 
@@ -158,13 +208,13 @@ fun OptionPanel(
         HorizontalDivider(color = FD.Line, thickness = 0.5.dp)
         Row(Modifier.fillMaxWidth().height(48.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onCancel) { Icon(Icons.Filled.Close, contentDescription = "Cancel", tint = FD.Text) }
-            Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+            Row(Modifier.weight(1f), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
                 if (onReset != null) {
-                    TextButton(onClick = onReset) {
-                        Text(if (hint != null) "Reset · $hint" else "Reset", color = FD.Muted, fontSize = 12.sp, maxLines = 1)
-                    }
-                } else if (hint != null) {
-                    Text(hint, color = FD.Muted, fontSize = 12.sp, maxLines = 1)
+                    TextButton(onClick = onReset) { Text("Reset", color = FD.Text, fontSize = 13.sp, maxLines = 1) }
+                }
+                if (hint != null) {
+                    // Only a hint, not part of the Reset button.
+                    Text(hint, color = FD.Muted.copy(alpha = 0.7f), fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
             IconButton(onClick = onDone) { Icon(Icons.Filled.Check, contentDescription = "Done", tint = FD.Amber) }
@@ -201,10 +251,17 @@ fun ValueDial(
                 ),
             contentAlignment = Alignment.Center,
         ) {
+            // Long values ("R+2 B−4", "10000K") get two lines or a smaller size so they fit the circle.
+            val lines = value.split(' ').filter { it.isNotEmpty() }
+            val twoLines = value.length > 6 && lines.size == 2
+            val longest = if (twoLines) lines.maxOf { it.length } else value.length
             Text(
-                value, maxLines = 1, overflow = TextOverflow.Clip,
+                if (twoLines) lines.joinToString("\n") else value,
+                maxLines = 2, overflow = TextOverflow.Clip, textAlign = TextAlign.Center,
+                lineHeight = 10.sp,
                 color = when { dimmed -> FD.Muted.copy(alpha = 0.6f); changed -> FD.Amber; else -> FD.Text },
-                fontSize = if (value.length > 5) 9.sp else 11.sp, fontFamily = FD.Mono, fontWeight = FontWeight.Bold,
+                fontSize = when { longest >= 7 -> 7.5.sp; longest >= 6 -> 8.5.sp; longest >= 5 -> 9.5.sp; else -> 11.sp },
+                fontFamily = FD.Mono, fontWeight = FontWeight.Bold,
             )
         }
         Spacer(Modifier.height(4.dp))

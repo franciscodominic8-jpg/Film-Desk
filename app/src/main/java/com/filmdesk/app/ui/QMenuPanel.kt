@@ -74,7 +74,7 @@ private val Q_DIALS = listOf(
     QDial("grain", "Grain", listOf("grain")),
     QDial("cc", "Color Chr.", listOf("cc")),
     QDial("ccb", "CC FX Blue", listOf("ccb")),
-    QDial("wb", "White Bal.", listOf("wb", "kelvin")),
+    QDial("wb", "White Bal.", listOf("wb")),
     QDial("wbs", "WB Shift", listOf("wbr", "wbb")),
     QDial("dr", "Dyn. Range", listOf("dr")),
     QDial("drp", "D-Range Pri.", listOf("drp")),
@@ -218,14 +218,17 @@ fun QSheet(vm: EditorViewModel, id: String) {
             else -> {
                 val s = setting(d.settings.first()) as QSetting.Stepper
                 val v = s.get(p)
-                BigValue(d.label, if (d.id == "exp") expShort(p.exposureThirds) else s.format(v), !s.isDefault(p))
+                val shown = if (d.id == "exp") expShort(p.exposureThirds) else s.format(v)
+                BigValue(d.label, shown, !s.isDefault(p), onNudge = { k ->
+                    vm.updateParams(s.set(vm.params, s.snap(s.get(vm.params) + k * s.step)))
+                })
                 val minL = if (d.id == "exp") "−3" else s.format(s.min)
                 val maxL = if (d.id == "exp") "+3" else s.format(s.max)
                 TickSlider(
                     v, s.min, s.max, s.step,
                     onChange = { vm.updateParams(s.set(vm.params, s.snap(it))) },
                     minLabel = minL, midLabel = "0", maxLabel = maxL,
-                    description = d.label,
+                    description = d.label, valueText = shown,
                 )
                 Text(s.hint, color = FD.Muted, fontSize = 11.sp, modifier = Modifier.fillMaxWidth().padding(top = 2.dp))
             }
@@ -329,7 +332,12 @@ private fun DrawScope.skinTile(i: Int) {
 private fun WhiteBalancePanel(vm: EditorViewModel) {
     val p = vm.params
     val preset = WB_PRESETS[p.wb.coerceIn(0, WB_PRESETS.lastIndex)]
-    BigValue("White balance", if (preset.type == WbType.CUSTOM) "${p.kelvin}K" else preset.label, p.wb != 0)
+    BigValue(
+        "White balance", if (preset.type == WbType.CUSTOM) "${p.kelvin}K" else preset.label, p.wb != 0,
+        onNudge = if (preset.type == WbType.CUSTOM) ({ k ->
+            vm.updateParams(vm.params.copy(kelvin = (vm.params.kelvin + k * 100).coerceIn(2500, 10000)))
+        }) else null,
+    )
     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
         WB_PRESETS.forEachIndexed { i, w ->
             val short = when (w.type) {
@@ -351,7 +359,7 @@ private fun WhiteBalancePanel(vm: EditorViewModel) {
             p.kelvin.toFloat(), 2500f, 10000f, 100f,
             onChange = { vm.updateParams(vm.params.copy(kelvin = it.roundToInt())) },
             origin = 5500f, minLabel = "2500K", midLabel = "5500K", maxLabel = "10000K",
-            description = "Kelvin",
+            description = "Kelvin", valueText = "${p.kelvin}K",
         )
     }
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {

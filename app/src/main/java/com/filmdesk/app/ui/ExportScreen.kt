@@ -40,6 +40,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -265,11 +266,11 @@ fun ExportScreen(vm: EditorViewModel) {
                         if (s.format == ExportFormat.HEIF) Note("Smaller files at the same quality.")
                         if (!s.canWriteMetadata) Note("Metadata (camera info, copyright, recipe) is saved in JPEG files only.")
                         if (s.lossy) {
-                            BigValue("Quality", s.quality.toString(), true)
+                            BigValue("Quality", s.quality.toString(), true, onNudge = { k -> set { it.copy(quality = (it.quality + k).coerceIn(10, 100)) } })
                             TickSlider(
                                 s.quality.toFloat(), 10f, 100f, 1f,
                                 onChange = { v -> set { it.copy(quality = v.roundToInt()) } },
-                                origin = 10f, minLabel = "10", maxLabel = "100", description = "Quality",
+                                origin = 10f, minLabel = "10", maxLabel = "100", description = "Quality", valueText = s.quality.toString(),
                             )
                         }
                         if (s.canLimitSize) {
@@ -590,7 +591,7 @@ private fun ExportSheet(
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         containerColor = FD.Surface,
     ) {
-        Column(Modifier.fillMaxWidth().navigationBarsPadding()) {
+        Column(Modifier.fillMaxWidth().navigationBarsPadding().imePadding()) {
             Text(
                 title.uppercase(), color = FD.Muted, fontSize = 12.sp, fontFamily = FD.Mono, letterSpacing = 2.sp,
                 modifier = Modifier.align(Alignment.CenterHorizontally),

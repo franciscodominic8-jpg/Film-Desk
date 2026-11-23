@@ -212,7 +212,7 @@ private fun StudioHeader(vm: EditorViewModel) {
                     text = { Text("Select photos", color = FD.Text) },
                     leadingIcon = { Icon(Icons.Filled.SelectAll, contentDescription = null, tint = FD.Text) },
                     enabled = vm.studio.isNotEmpty(),
-                    onClick = { menu = false; vm.studio.firstOrNull()?.let { vm.toggleSelect(it.id) } },
+                    onClick = { menu = false; vm.startSelecting() },
                 )
             }
         }

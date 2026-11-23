@@ -141,13 +141,20 @@ fun EditParams.withSoft(ch: Int, kind: Int, v: Int): EditParams {
     } else copy(softRGB = softRGB.toMutableList().also { it[ch * 4 + kind] = x })
 }
 
-/** Link or unlink soft clip; unlinking starts every channel from the shared values. */
-fun EditParams.withSoftLink(link: Boolean): EditParams =
+/**
+ * Link or unlink soft clip. Unlinking starts every channel from the shared values;
+ * linking again uses the values of channel [from] (the one being edited) for all three.
+ */
+fun EditParams.withSoftLink(link: Boolean, from: Int = 0): EditParams =
     if (link == softLink) this
-    else if (link) copy(
-        softLink = true,
-        softLow = softRGB[SOFT_LOW], softHigh = softRGB[SOFT_HIGH], softLS = softRGB[SOFT_LS], softHS = softRGB[SOFT_HS],
-    )
+    else if (link) {
+        val b = from.coerceIn(0, 2) * 4
+        copy(
+            softLink = true,
+            softLow = softRGB[b + SOFT_LOW], softHigh = softRGB[b + SOFT_HIGH],
+            softLS = softRGB[b + SOFT_LS], softHS = softRGB[b + SOFT_HS],
+        )
+    }
     else copy(softLink = false, softRGB = List(12) { softValue(0, it % 4) })
 
 /** Resets every curve, intensity, link and soft clip setting. */
