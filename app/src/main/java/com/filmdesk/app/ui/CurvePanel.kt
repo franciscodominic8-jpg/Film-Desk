@@ -125,6 +125,9 @@ fun CurveScreen(vm: EditorViewModel) {
 
     BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black)) {
         val wide = maxWidth >= 600.dp
+        // Same photo height as the normal editor (top bar, tool panel and tab bar taken off).
+        val photoH = (maxHeight - 48.dp - maxHeight * 0.46f - 54.dp).coerceAtLeast(150.dp)
+        val graphH = (maxHeight - 48.dp - photoH - 52.dp).coerceIn(170.dp, 420.dp)
         Column(Modifier.fillMaxSize()) {
             CurveTopBar(vm)
             if (wide) {
@@ -146,9 +149,6 @@ fun CurveScreen(vm: EditorViewModel) {
                     }
                 }
             } else {
-                // Same photo height as the normal editor (top bar, tool panel and tab bar taken off).
-                val photoH = (maxHeight - 48.dp - maxHeight * 0.46f - 54.dp).coerceAtLeast(150.dp)
-                val graphH = (maxHeight - 48.dp - photoH - 52.dp).coerceIn(170.dp, 420.dp)
                 PreviewArea(vm, Modifier.fillMaxWidth().height(photoH))
                 Column(Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState())) {
                     Graph(vm, channel, Modifier.fillMaxWidth().height(graphH))

@@ -1,3 +1,5 @@
+package com.filmdesk.app.ui
+
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.DropdownMenu
