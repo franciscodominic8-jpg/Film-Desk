@@ -1,5 +1,12 @@
 package com.filmdesk.app.ui
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -85,6 +92,17 @@ private enum class StudioFilter(val label: String) { All("All"), Edited("Edited"
 fun StudioScreen(vm: EditorViewModel) {
     var filter by rememberSaveable { mutableStateOf(StudioFilter.All) }
     var showPaste by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    // Android 7–9 needs the storage permission to save into Pictures/.
+    val writeLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
+        if (ok) vm.exportSelection() else vm.message = "Storage permission is needed to save on this Android version"
+    }
+    fun exportSelected() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED
+        ) writeLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+        else vm.exportSelection()
+    }
     val all = vm.studio
     val shown = when (filter) {
         StudioFilter.All -> all
@@ -169,7 +187,7 @@ fun StudioScreen(vm: EditorViewModel) {
                 }
             }
 
-            if (vm.selecting) SelectionActions(vm) { showPaste = true }
+            if (vm.selecting) SelectionActions(vm, onPaste = { showPaste = true }, onExport = ::exportSelected)
         }
     }
 
@@ -196,7 +214,7 @@ private fun StudioHeader(vm: EditorViewModel) {
             SectionLabel("Film Desk")
             Text("Studio", color = FD.Text, fontSize = 28.sp, fontWeight = FontWeight.Bold)
         }
-        OutlinedButton(onClick = { vm.navigate(Screen.Recipes) }) {
+        OutlinedButton(onClick = { vm.openRecipes() }) {
             Icon(Icons.Filled.FilterVintage, contentDescription = null, tint = FD.Amber, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(6.dp))
             Text("Recipes", color = FD.Text)
@@ -351,7 +369,7 @@ private fun StudioCell(vm: EditorViewModel, item: StudioItem) {
 }
 
 @Composable
-private fun SelectionActions(vm: EditorViewModel, onPaste: () -> Unit) {
+private fun SelectionActions(vm: EditorViewModel, onPaste: () -> Unit, onExport: () -> Unit) {
     val one = vm.selection.singleOrNull()
     Row(
         Modifier
@@ -362,7 +380,8 @@ private fun SelectionActions(vm: EditorViewModel, onPaste: () -> Unit) {
     ) {
         ActionButton(Icons.Filled.ContentCopy, "Copy", enabled = one != null) { one?.let(vm::copyEdits) }
         ActionButton(Icons.Filled.ContentPaste, "Paste", enabled = vm.clipboard != null, highlight = vm.clipboard != null, onClick = onPaste)
-        ActionButton(Icons.Filled.Download, "Export", enabled = !vm.exporting) { vm.exportSelection() }
+        ActionButton(Icons.Filled.FilterVintage, "Recipe") { vm.openRecipes() }
+        ActionButton(Icons.Filled.Download, "Export", enabled = !vm.exporting, onClick = onExport)
         ActionButton(Icons.Filled.RestartAlt, "Reset") { vm.resetSelection() }
         ActionButton(Icons.Filled.Delete, "Remove") { vm.removeSelection() }
     }

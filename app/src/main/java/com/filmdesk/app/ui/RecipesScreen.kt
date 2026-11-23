@@ -77,7 +77,12 @@ fun RecipesScreen(vm: EditorViewModel) {
             }
         }
         Text(
-            if (vm.hasImage) "Tap a recipe to apply it to your photo." else "Tap a recipe to select it, then open a photo.",
+            when {
+                !vm.recipesFromStudio -> "Tap a recipe to apply it to your photo."
+                vm.recipeTargets.size == 1 -> "Tap a recipe to apply it to the selected photo."
+                vm.recipeTargets.isNotEmpty() -> "Tap a recipe to apply it to the ${vm.recipeTargets.size} selected photos."
+                else -> "To use a recipe, long-press photos in the Studio to select them, then tap Recipe."
+            },
             color = FD.Muted, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
         )
         LazyColumn(

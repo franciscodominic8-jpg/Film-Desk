@@ -153,6 +153,11 @@ private fun EditorTopBar(vm: EditorViewModel) {
             }
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, containerColor = FD.Surface2) {
                 DropdownMenuItem(
+                    text = { Text("Apply a recipe", color = FD.Text) },
+                    leadingIcon = { Icon(Icons.Filled.FilterVintage, contentDescription = null, tint = FD.Text) },
+                    onClick = { menu = false; vm.openRecipes() },
+                )
+                DropdownMenuItem(
                     text = { Text("Save as recipe", color = FD.Text) },
                     leadingIcon = { Icon(Icons.Filled.BookmarkAdd, contentDescription = null, tint = FD.Text) },
                     onClick = { menu = false; showSave = true },

@@ -258,7 +258,43 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
 
     var recipes by mutableStateOf<List<Recipe>>(emptyList()); private set
     var message by mutableStateOf<String?>(null)
-    var exportSettings by mutableStateOf(ExportSettings())
+    private val exportPrefs = app.getSharedPreferences("export", android.content.Context.MODE_PRIVATE)
+    private var exportState by mutableStateOf(loadExportSettings())
+    /** Remembered between app starts. */
+    var exportSettings: ExportSettings
+        get() = exportState
+        set(v) {
+            exportState = v
+            exportPrefs.edit()
+                .putString("format", v.format.name).putInt("quality", v.quality).putInt("size", v.size)
+                .putBoolean("embedRecipe", v.embedRecipe).putBoolean("keepLocation", v.keepLocation)
+                .apply()
+        }
+
+    private fun loadExportSettings(): ExportSettings {
+        val d = ExportSettings()
+        return try {
+            ExportSettings(
+                format = ExportFormat.entries.firstOrNull { it.name == exportPrefs.getString("format", null) } ?: d.format,
+                quality = exportPrefs.getInt("quality", d.quality).coerceIn(60, 100),
+                size = exportPrefs.getInt("size", d.size).coerceIn(0, EXPORT_SIZES.lastIndex),
+                embedRecipe = exportPrefs.getBoolean("embedRecipe", d.embedRecipe),
+                keepLocation = exportPrefs.getBoolean("keepLocation", d.keepLocation),
+            )
+        } catch (e: Exception) {
+            d
+        }
+    }
+
+    /** Recipes opened from the Studio apply to these selected photos. */
+    var recipeTargets by mutableStateOf<Set<Long>>(emptySet()); private set
+    var recipesFromStudio by mutableStateOf(false); private set
+
+    fun openRecipes() {
+        recipesFromStudio = screen != Screen.Editor
+        recipeTargets = if (recipesFromStudio) selection else emptySet()
+        navigate(Screen.Recipes)
+    }
     var exporting by mutableStateOf(false); private set
     var canUndo by mutableStateOf(false); private set
     var canRedo by mutableStateOf(false); private set
@@ -279,6 +315,8 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         recipes = store.load()
         repeat(FILM_SIMS.size) { simThumbs.add(null) }
         studio = studioStore.load()
+        val loaded = studio
+        viewModelScope.launch(Dispatchers.IO) { studioStore.cleanCopies(loaded) }
         // Thumbnails load lazily as grid cells appear (see ensureThumb).
     }
 
@@ -305,10 +343,22 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---------------------------------------------------------------- images
 
-    /** Opens a photo shared to the app: adds it to the Studio and opens it. */
+    /**
+     * Opens a photo shared to the app ("Share" / "Edit with"). Those links stop working when
+     * the app closes, so a private copy is added to the Studio (once per photo).
+     */
     fun openImage(uri: Uri) {
-        val item = importPhotos(listOf(uri), quiet = true).firstOrNull() ?: return
-        openItem(item)
+        studio.firstOrNull { it.source == uri.toString() || it.uri == uri }?.let { openItem(it); return }
+        viewModelScope.launch {
+            val ctx = getApplication<Application>()
+            val copy = withContext(Dispatchers.IO) { studioStore.copyIn(ctx, uri) }
+            if (copy == null) {
+                message = "Couldn't open this photo"
+                return@launch
+            }
+            val item = importPhotos(listOf(copy), quiet = true, source = uri.toString()).firstOrNull() ?: return@launch
+            openItem(item)
+        }
     }
 
     /** Opens a Studio photo with its own saved edits (a new photo starts with none). */
@@ -491,12 +541,33 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun applyRecipe(r: Recipe) {
-        change(r.params.withGeometryOf(params))
-        if (hasImage) {
-            navigate(Screen.Editor)
-        } else {
-            message = "“${r.name}” selected — open a photo to use it"
+        if (!recipesFromStudio) {
+            change(r.params.withGeometryOf(params))
+            back()
+            return
         }
+        val targets = recipeTargets.filter { id -> studio.any { it.id == id } }.toSet()
+        if (targets.isEmpty()) {
+            message = "Select photos in the Studio first (long-press a photo), then tap Recipe"
+            return
+        }
+        val before = studio
+        val updated = studio.map { item ->
+            if (item.id !in targets) item else {
+                val p = r.params.withGeometryOf(item.params ?: EditParams())
+                item.copy(params = p.takeIf { it != EditParams() })
+            }
+        }
+        updateStudio(updated)
+        updated.filter { it.id in targets }.forEach { refreshThumb(it) }
+        clearSelection()
+        recipeTargets = emptySet()
+        syncCurrent()
+        back()
+        offerUndo(
+            if (targets.size == 1) "Applied “${r.name}” to 1 photo" else "Applied “${r.name}” to ${targets.size} photos",
+            before,
+        )
     }
 
     fun deleteRecipe(r: Recipe) {
@@ -570,7 +641,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Adds photos to the Studio (skipping ones already there). Returns the items for [uris]. */
-    fun importPhotos(uris: List<Uri>, quiet: Boolean = false): List<StudioItem> {
+    fun importPhotos(uris: List<Uri>, quiet: Boolean = false, source: String? = null): List<StudioItem> {
         if (uris.isEmpty()) return emptyList()
         val cr = getApplication<Application>().contentResolver
         val byUri = studio.associateBy { it.uri.toString() }
@@ -580,7 +651,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
             byUri[uri.toString()] ?: run {
                 // Keeps access after a restart for photos picked with the system picker.
                 try { cr.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (e: Exception) { }
-                StudioItem(id = nextId++, uri = uri).also { fresh += it }
+                StudioItem(id = nextId++, uri = uri, source = source).also { fresh += it }
             }
         }
         if (fresh.isNotEmpty()) {
@@ -677,6 +748,10 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun displayName(uri: Uri): String {
+        if (uri.scheme == "file") {
+            // Private copy: "<time>_<original name>".
+            return uri.lastPathSegment?.substringAfter('_')?.substringBeforeLast('.')?.takeIf { it.isNotBlank() } ?: "this photo"
+        }
         val name = try {
             getApplication<Application>().contentResolver
                 .query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)

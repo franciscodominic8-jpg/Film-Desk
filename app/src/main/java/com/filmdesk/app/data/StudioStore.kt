@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
+import android.provider.OpenableColumns
 import com.filmdesk.app.model.EditParams
 import org.json.JSONArray
 import org.json.JSONObject
@@ -18,6 +19,8 @@ data class StudioItem(
     val uri: Uri,
     val params: EditParams? = null,
     val added: Long = System.currentTimeMillis(),
+    /** For photos shared from another app: the link they came from ([uri] is our private copy). */
+    val source: String? = null,
 ) {
     val edited: Boolean get() = params != null
 }
@@ -38,6 +41,7 @@ class StudioStore(context: Context) {
                     uri = Uri.parse(uri),
                     params = o.optJSONObject("params")?.let { EditParams.fromJson(it) },
                     added = o.optLong("added", 0L),
+                    source = o.optString("source").takeIf { it.isNotEmpty() },
                 )
             }
         }
@@ -50,6 +54,7 @@ class StudioStore(context: Context) {
         for (it in list) {
             val o = JSONObject().put("id", it.id).put("uri", it.uri.toString()).put("added", it.added)
             it.params?.let { p -> o.put("params", p.toJson()) }
+            it.source?.let { s -> o.put("source", s) }
             arr.put(o)
         }
         try {
@@ -59,6 +64,38 @@ class StudioStore(context: Context) {
         } catch (e: Exception) {
             // Best effort: the list is kept in memory until the next successful save.
         }
+    }
+
+    private val importDir = File(context.filesDir, "imported").apply { mkdirs() }
+
+    /**
+     * Keeps a private copy of a photo shared from another app. Such links only work while the
+     * app is open, so without a copy the photo would be lost after a restart.
+     */
+    fun copyIn(context: Context, uri: Uri): Uri? {
+        val name = try {
+            context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+                ?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
+        } catch (e: Exception) {
+            null
+        }
+        val safe = (name ?: "photo.jpg").replace(Regex("[^A-Za-z0-9._-]"), "_").takeLast(80)
+        val file = File(importDir, "${System.currentTimeMillis()}_$safe")
+        return try {
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                file.outputStream().use { input.copyTo(it) }
+            } ?: return null
+            Uri.fromFile(file)
+        } catch (e: Exception) {
+            file.delete()
+            null
+        }
+    }
+
+    /** Deletes private copies that no Studio photo uses any more. */
+    fun cleanCopies(list: List<StudioItem>) {
+        val used = list.mapNotNull { it.uri.path }.toHashSet()
+        importDir.listFiles()?.forEach { f -> if (f.path !in used) f.delete() }
     }
 
     private fun thumbFile(id: Long) = File(thumbDir, "$id.jpg")

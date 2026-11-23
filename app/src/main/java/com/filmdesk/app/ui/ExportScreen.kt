@@ -102,7 +102,8 @@ fun ExportScreen(vm: EditorViewModel) {
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(width = 120.dp, height = 90.dp).clip(RoundedCornerShape(6.dp)).background(FD.Surface)) {
-                    vm.preview?.let { b ->
+                    val thumb = if (vm.tab == EditorTab.Crop) vm.currentId?.let { vm.studioThumbs[it] } ?: vm.preview else vm.preview
+                    thumb?.let { b ->
                         val img = remember(b) { b.asImageBitmap() }
                         Image(img, contentDescription = "Edited photo", modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                     }
