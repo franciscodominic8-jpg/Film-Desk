@@ -114,3 +114,11 @@ val FILM_SIMS: List<FilmSim> = listOf(
     FilmSim("Sepia", "Sepia", "Warm brown-toned B&W",
         shadowTone = 0.04f, highlightTone = 0.02f, saturation = 0f, mono = BW, sepia = true, swatch = 0xFFC9B08A),
 )
+
+/** Two-to-three letter codes shown on thumbnails and dials (same order as [FILM_SIMS]). */
+val SIM_CODES = listOf(
+    "PRO", "VEL", "AST", "CC", "RA", "NH", "NS", "CN", "NN", "ET", "BB",
+    "ACR", "A+Y", "A+R", "A+G", "MON", "M+Y", "M+R", "M+G", "SEP",
+)
+
+fun simCode(i: Int): String = SIM_CODES.getOrElse(i) { FILM_SIMS.getOrNull(i)?.short?.take(3)?.uppercase() ?: "?" }

@@ -1,5 +1,3 @@
-package com.filmdesk.app.ui
-
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.DropdownMenu
@@ -81,16 +79,22 @@ import com.filmdesk.app.model.FilmSim
 import com.filmdesk.app.ui.theme.FD
 import kotlin.math.roundToInt
 
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.material3.HorizontalDivider
+import com.filmdesk.app.model.simCode
+import androidx.compose.material.icons.filled.MoreHoriz
+import androidx.compose.material.icons.filled.Movie
+
 @Composable
 fun EditorScreen(vm: EditorViewModel) {
     if (vm.curveMode) {
         CurveScreen(vm)
         return
     }
-    BoxWithConstraints(Modifier.fillMaxSize()) {
+    BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black)) {
         // Wide = unfolded foldable, tablet, or phone in landscape.
         val wide = maxWidth >= 600.dp
-        val panelWidth = if (maxWidth >= 840.dp) 380.dp else 320.dp
+        val panelWidth = if (maxWidth >= 840.dp) 380.dp else 330.dp
         if (wide) {
             Row(Modifier.fillMaxSize()) {
                 Column(Modifier.weight(1f).fillMaxHeight()) {
@@ -99,22 +103,45 @@ fun EditorScreen(vm: EditorViewModel) {
                     else PreviewArea(vm, Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp))
                     EditorTabs(vm)
                 }
-                Box(
+                Column(
                     Modifier
                         .width(panelWidth)
                         .fillMaxHeight()
-                        .background(FD.Panel)
-                ) { ToolPanel(vm, Modifier.fillMaxSize()) }
+                        .background(FD.Bg)
+                ) {
+                    Spacer(Modifier.height(48.dp))
+                    BottomArea(vm, Modifier.fillMaxWidth().weight(1f, fill = false))
+                }
             }
         } else {
-            val panelHeight = minOf(maxHeight * 0.42f, 360.dp)
+            val maxPanel = maxHeight * 0.46f
             Column(Modifier.fillMaxSize()) {
                 EditorTopBar(vm)
                 if (vm.tab == EditorTab.Crop) CropView(vm, Modifier.weight(1f).fillMaxWidth())
                 else PreviewArea(vm, Modifier.weight(1f).fillMaxWidth())
-                ToolPanel(vm, Modifier.fillMaxWidth().height(panelHeight))
+                BottomArea(vm, Modifier.fillMaxWidth().heightIn(max = maxPanel))
                 EditorTabs(vm)
             }
+        }
+    }
+}
+
+/** Under the photo: the open option panel, or the current tab's tools. */
+@Composable
+private fun BottomArea(vm: EditorViewModel, modifier: Modifier) {
+    Box(modifier) {
+        val sheet = vm.sheet
+        when {
+            sheet == null -> when (vm.tab) {
+                EditorTab.Film -> FilmTab(vm)
+                EditorTab.QMenu -> QMenuPanel(vm)
+                EditorTab.Pro -> ProPanel(vm)
+                EditorTab.Crop -> Column(Modifier.verticalScroll(rememberScrollState())) { CropTools(vm) }
+            }
+            sheet == "film" -> FilmStrengthSheet(vm)
+            sheet.startsWith("q:") -> QSheet(vm, sheet.removePrefix("q:"))
+            sheet.startsWith("pro:") -> ProSheet(vm, sheet.removePrefix("pro:"))
+            else -> FilmTab(vm)
         }
     }
 }
@@ -124,10 +151,9 @@ private fun EditorTopBar(vm: EditorViewModel) {
     var showSave by remember { mutableStateOf(false) }
     var showPaste by remember { mutableStateOf(false) }
     var menu by remember { mutableStateOf(false) }
-    // Sized to fit narrow screens such as the Fold cover display (~344 dp).
     val btn = Modifier.size(40.dp)
     Row(
-        Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 2.dp),
+        Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         IconButton(onClick = { vm.back() }, modifier = Modifier.size(44.dp)) {
@@ -140,18 +166,25 @@ private fun EditorTopBar(vm: EditorViewModel) {
         IconButton(onClick = vm::redo, enabled = vm.canRedo, modifier = btn) {
             Icon(Icons.AutoMirrored.Filled.Redo, contentDescription = "Redo", tint = if (vm.canRedo) FD.Text else FD.Line)
         }
-        IconButton(onClick = vm::copyCurrent, enabled = vm.hasImage, modifier = btn) {
-            Icon(Icons.Filled.ContentCopy, contentDescription = "Copy edits", tint = FD.Text)
-        }
-        val canPaste = vm.clipboard != null && vm.hasImage
-        IconButton(onClick = { showPaste = true }, enabled = canPaste, modifier = btn) {
-            Icon(Icons.Filled.ContentPaste, contentDescription = "Paste edits", tint = if (canPaste) FD.Amber else FD.Line)
-        }
         Box {
             IconButton(onClick = { menu = true }, modifier = btn) {
-                Icon(Icons.Filled.MoreVert, contentDescription = "More", tint = FD.Text)
+                Icon(Icons.Filled.MoreHoriz, contentDescription = "More", tint = FD.Text)
             }
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, containerColor = FD.Surface2) {
+                DropdownMenuItem(
+                    text = { Text("Copy edits", color = FD.Text) },
+                    leadingIcon = { Icon(Icons.Filled.ContentCopy, contentDescription = null, tint = FD.Text) },
+                    enabled = vm.hasImage,
+                    onClick = { menu = false; vm.copyCurrent() },
+                )
+                val canPaste = vm.clipboard != null && vm.hasImage
+                DropdownMenuItem(
+                    text = { Text("Paste edits", color = if (canPaste) FD.Text else FD.Muted) },
+                    leadingIcon = { Icon(Icons.Filled.ContentPaste, contentDescription = null, tint = if (canPaste) FD.Text else FD.Muted) },
+                    enabled = canPaste,
+                    onClick = { menu = false; showPaste = true },
+                )
+                HorizontalDivider(color = FD.Line)
                 DropdownMenuItem(
                     text = { Text("Apply a recipe", color = FD.Text) },
                     leadingIcon = { Icon(Icons.Filled.FilterVintage, contentDescription = null, tint = FD.Text) },
@@ -164,13 +197,16 @@ private fun EditorTopBar(vm: EditorViewModel) {
                 )
             }
         }
-        Button(
+        TextButton(
             onClick = { vm.openExport() },
             enabled = vm.hasImage,
-            colors = ButtonDefaults.buttonColors(containerColor = FD.Amber, contentColor = FD.OnAmber),
             contentPadding = PaddingValues(horizontal = 12.dp),
-            modifier = Modifier.padding(start = 2.dp, end = 4.dp).height(36.dp),
-        ) { Text("Export", fontWeight = FontWeight.SemiBold, fontSize = 13.sp, maxLines = 1) }
+        ) {
+            Text(
+                "Export", fontWeight = FontWeight.SemiBold, fontSize = 15.sp, maxLines = 1,
+                color = if (vm.hasImage) FD.Amber else FD.Muted,
+            )
+        }
     }
 
     val clip = vm.clipboard
@@ -247,18 +283,19 @@ internal fun PreviewArea(vm: EditorViewModel, modifier: Modifier) {
             Image(img, contentDescription = "Photo preview", modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
         }
         val sim = FILM_SIMS[vm.params.sim]
-        Badge(
-            if (showOriginal) "ORIGINAL" else "${sim.short.uppercase()} · ${(vm.params.simStrength * 100).roundToInt()}%",
-            Modifier.align(Alignment.TopStart).padding(10.dp),
+        Text(
+            if (showOriginal) "ORIGINAL" else sim.short.uppercase() + if (vm.params.simStrength < 1f) " · ${(vm.params.simStrength * 100).roundToInt()}%" else "",
+            modifier = Modifier.align(Alignment.TopStart).padding(horizontal = 12.dp, vertical = 8.dp),
+            color = FD.Text.copy(alpha = 0.85f), fontSize = 10.sp, fontFamily = FD.Mono, letterSpacing = 1.sp,
         )
         if (vm.rendering && !vm.loading) {
             CircularProgressIndicator(
                 color = FD.Amber, strokeWidth = 2.dp,
-                modifier = Modifier.align(Alignment.TopEnd).padding(12.dp).size(16.dp),
+                modifier = Modifier.align(Alignment.TopEnd).padding(12.dp).size(14.dp),
             )
         }
-        if (!vm.loading && bmp != null) {
-            Badge(if (picking) "TAP TO SAMPLE A COLOUR" else "HOLD TO COMPARE", Modifier.align(Alignment.BottomCenter).padding(10.dp))
+        if (picking && !vm.loading && bmp != null) {
+            Badge("TAP TO SAMPLE A COLOUR", Modifier.align(Alignment.BottomCenter).padding(10.dp))
         }
     }
 }
@@ -278,13 +315,13 @@ internal fun Badge(text: String, modifier: Modifier) {
 @Composable
 private fun EditorTabs(vm: EditorViewModel) {
     Row(
-        Modifier.fillMaxWidth().height(68.dp).background(FD.Panel),
+        Modifier.fillMaxWidth().height(54.dp).background(Color.Black),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         EditorTab.entries.forEach { t ->
             val selected = vm.tab == t
             val icon: ImageVector = when (t) {
-                EditorTab.Film -> Icons.Filled.FilterVintage
+                EditorTab.Film -> Icons.Filled.Movie
                 EditorTab.QMenu -> Icons.Filled.GridView
                 EditorTab.Pro -> Icons.Filled.Tune
                 EditorTab.Crop -> Icons.Filled.Crop
@@ -300,11 +337,11 @@ private fun EditorTabs(vm: EditorViewModel) {
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
             ) {
-                Icon(icon, contentDescription = null, tint = if (selected) FD.Amber else FD.Muted)
-                Spacer(Modifier.height(4.dp))
+                Icon(icon, contentDescription = null, tint = if (selected) FD.Text else FD.Muted.copy(alpha = 0.6f), modifier = Modifier.size(20.dp))
+                Spacer(Modifier.height(2.dp))
                 Text(
-                    t.label, fontSize = 11.sp,
-                    color = if (selected) FD.Amber else FD.Muted,
+                    t.label, fontSize = 10.sp,
+                    color = if (selected) FD.Text else FD.Muted.copy(alpha = 0.6f),
                     fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
                 )
             }
@@ -312,81 +349,101 @@ private fun EditorTabs(vm: EditorViewModel) {
     }
 }
 
-@Composable
-private fun ToolPanel(vm: EditorViewModel, modifier: Modifier) {
-    Column(modifier.verticalScroll(rememberScrollState())) {
-        when (vm.tab) {
-            EditorTab.Film -> FilmPanel(vm)
-            EditorTab.QMenu -> QMenuPanel(vm)
-            EditorTab.Pro -> ProPanel(vm)
-            EditorTab.Crop -> CropTools(vm)
-        }
-    }
-}
-
 // ------------------------------------------------------------------ Film tab
 
 @Composable
-private fun FilmPanel(vm: EditorViewModel) {
+private fun FilmTab(vm: EditorViewModel) {
     val p = vm.params
     val sim = FILM_SIMS[p.sim]
+    Column(Modifier.padding(vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.padding(horizontal = 16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("FILM SIMULATION", color = FD.Muted, fontSize = 10.sp, fontFamily = FD.Mono, letterSpacing = 1.5.sp)
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    sim.name, color = FD.Text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
+                )
+                Text("${p.sim + 1}/${FILM_SIMS.size}", color = FD.Muted, fontSize = 10.sp, fontFamily = FD.Mono)
+            }
+            Text(
+                "${sim.description} · strength ${(p.simStrength * 100).roundToInt()}%",
+                color = FD.Muted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            )
+        }
+        SimStrip(vm, onPick = { i ->
+            if (i == vm.params.sim) vm.openSheet("film") else vm.change(vm.params.copy(sim = i))
+        })
+        Text(
+            "Tap the selected film again for strength",
+            color = FD.Muted.copy(alpha = 0.7f), fontSize = 10.sp,
+            modifier = Modifier.padding(horizontal = 16.dp),
+        )
+    }
+}
+
+/** Row of film simulation thumbnails with their codes and a family colour bar. */
+@Composable
+internal fun SimStrip(vm: EditorViewModel, onPick: (Int) -> Unit) {
+    val p = vm.params
     val listState = rememberLazyListState()
     LaunchedEffect(Unit) { listState.scrollToItem((p.sim - 1).coerceAtLeast(0)) }
-    Column(Modifier.padding(vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Column(Modifier.padding(horizontal = 16.dp)) {
-            SectionLabel("Film simulation · ${p.sim + 1}/${FILM_SIMS.size}")
-            Text(sim.name, color = FD.Text, fontSize = 22.sp, fontWeight = FontWeight.Bold)
-            Text(sim.description, color = FD.Muted, fontSize = 13.sp)
-        }
-        LazyRow(
-            state = listState,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp),
-        ) {
-            itemsIndexed(FILM_SIMS) { i, s ->
-                SimChip(s, vm.simThumbs.getOrNull(i), selected = i == p.sim) { vm.change(vm.params.copy(sim = i)) }
-            }
-        }
-        Column(Modifier.padding(horizontal = 16.dp)) {
-            LabeledSlider(
-                label = "Strength",
-                value = p.simStrength,
-                range = 0f..1f,
-                display = "${(p.simStrength * 100).roundToInt()}%",
-                changed = p.simStrength != 1f,
-                onChange = { vm.updateParams(vm.params.copy(simStrength = (it * 100).roundToInt() / 100f)) },
-                onDone = vm::commit,
-                onReset = { vm.change(vm.params.copy(simStrength = 1f)) },
-            )
+    LazyRow(
+        state = listState,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        contentPadding = PaddingValues(horizontal = 12.dp),
+    ) {
+        itemsIndexed(FILM_SIMS) { i, s ->
+            SimTile(i, s, vm.simThumbs.getOrNull(i), selected = i == p.sim) { onPick(i) }
         }
     }
 }
 
 @Composable
-private fun SimChip(sim: FilmSim, thumb: Bitmap?, selected: Boolean, onClick: () -> Unit) {
-    val shape = RoundedCornerShape(8.dp)
+private fun SimTile(index: Int, sim: FilmSim, thumb: Bitmap?, selected: Boolean, onClick: () -> Unit) {
     Column(
         Modifier
-            .width(76.dp)
+            .width(62.dp)
             .selectable(selected = selected, role = Role.RadioButton, onClick = onClick),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Box(
             Modifier
-                .width(76.dp).height(58.dp)
-                .clip(shape)
+                .size(62.dp)
                 .background(Color(sim.swatch))
-                .border(if (selected) 2.dp else 1.dp, if (selected) FD.Amber else FD.Line, shape)
+                .border(if (selected) 2.dp else 0.dp, if (selected) Color.White else Color.Transparent)
         ) {
             if (thumb != null) {
                 val img = remember(thumb) { thumb.asImageBitmap() }
-                Image(img, contentDescription = null, modifier = Modifier.fillMaxSize().clip(shape), contentScale = ContentScale.Crop)
+                Image(img, contentDescription = sim.name, modifier = Modifier.fillMaxSize().padding(if (selected) 2.dp else 0.dp), contentScale = ContentScale.Crop)
             }
         }
-        Spacer(Modifier.height(6.dp))
+        Box(Modifier.fillMaxWidth().height(3.dp).background(Color(sim.swatch)))
+        Spacer(Modifier.height(4.dp))
         Text(
-            sim.short, fontSize = 11.sp, maxLines = 2, textAlign = TextAlign.Center, overflow = TextOverflow.Ellipsis,
-            color = if (selected) FD.Amber else FD.Muted,
+            simCode(index), fontSize = 10.sp, maxLines = 1, fontFamily = FD.Mono, textAlign = TextAlign.Center,
+            color = if (selected) Color.White else FD.Muted,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+        )
+    }
+}
+
+@Composable
+private fun FilmStrengthSheet(vm: EditorViewModel) {
+    val p = vm.params
+    val pct = (p.simStrength * 100).roundToInt()
+    OptionPanel(
+        onCancel = vm::cancelSheet,
+        onReset = { vm.updateParams(vm.params.copy(simStrength = 1f)) },
+        onDone = vm::doneSheet,
+        hint = "Hold photo to compare",
+    ) {
+        BigValue("${FILM_SIMS[p.sim].name} · strength", "$pct%", pct != 100)
+        TickSlider(
+            pct.toFloat(), 0f, 100f, 1f,
+            onChange = { vm.updateParams(vm.params.copy(simStrength = it / 100f)) },
+            origin = 100f, minLabel = "0%", midLabel = null, maxLabel = "100%",
+            description = "Film strength",
         )
     }
 }

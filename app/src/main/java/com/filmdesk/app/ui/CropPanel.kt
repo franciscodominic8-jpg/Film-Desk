@@ -395,53 +395,56 @@ private fun DrawScope.goldenSpiral(b: Rect, c: Color, sw: Float) {
 @Composable
 internal fun CropTools(vm: EditorViewModel) {
     val p = vm.params
-    Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         // Straighten
         Column {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Straighten", color = FD.Text, fontSize = 14.sp, modifier = Modifier.weight(1f))
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 4.dp)) {
+                Text("Straighten", color = FD.Muted, fontSize = 12.sp, modifier = Modifier.weight(1f))
                 Text(
                     signedDeg(p.straighten),
                     color = if (abs(p.straighten) > 0.05f) FD.Amber else FD.Muted,
-                    fontSize = 13.sp, fontFamily = FD.Mono,
+                    fontSize = 12.sp, fontFamily = FD.Mono,
                     modifier = Modifier.clip(RoundedCornerShape(6.dp)).clickable(onClickLabel = "Reset straighten") {
                         vm.change(vm.params.copy(straighten = 0f))
-                    }.padding(horizontal = 6.dp, vertical = 4.dp),
+                    }.padding(horizontal = 6.dp, vertical = 2.dp),
                 )
             }
             StraightenRuler(vm)
         }
 
-        // Ratio
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            SectionLabel("Ratio", Modifier.weight(1f))
-            if (p.aspect != ASPECT_FREE) Text("${ratioLabel(p.aspect, p.aspectFlip)} locked", color = FD.Amber, fontSize = 12.sp)
-        }
-        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        // Ratio: slim text pills, the picked one filled white.
+        Row(
+            Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             CROP_RATIO_ORDER.forEach { i ->
-                Pill(
-                    ratioLabel(i, i == p.aspect && p.aspectFlip),
-                    selected = p.aspect == i,
-                    onClick = { vm.setCropRatio(i) },
+                val sel = p.aspect == i
+                Text(
+                    ratioLabel(i, sel && p.aspectFlip),
+                    color = if (sel) FD.Bg else FD.Text,
+                    fontSize = 12.sp,
+                    fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Normal,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(if (sel) FD.Text else Color.Transparent)
+                        .clickable(onClickLabel = "Ratio") { vm.setCropRatio(i) }
+                        .padding(horizontal = 12.dp, vertical = 7.dp),
                 )
             }
         }
 
-        // Composition
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            SectionLabel("Composition", Modifier.weight(1f))
-            if (vm.cropGuide.turns > 1) Text("Tap ${vm.cropGuide.label} again to turn", color = FD.Muted, fontSize = 12.sp)
-        }
-        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        // Composition guides as small pictures (tap the picked one again to turn it).
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             CropGuide.entries.forEach { g -> GuideChip(g, selected = vm.cropGuide == g, turn = if (vm.cropGuide == g) vm.guideTurn else 0) { vm.pickGuide(g) } }
         }
 
-        // Turn, flip, swap, reset
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ToolButton(Icons.Filled.RotateLeft, "Rotate left") { vm.rotateCrop(cw = false) }
-            ToolButton(Icons.Filled.RotateRight, "Rotate right") { vm.rotateCrop(cw = true) }
+        // Turn, flip, swap, reset — one text row.
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            ToolButton(Icons.Filled.RotateLeft, "Left") { vm.rotateCrop(cw = false) }
+            ToolButton(Icons.Filled.RotateRight, "Right") { vm.rotateCrop(cw = true) }
             ToolButton(Icons.Filled.Flip, "Flip", on = p.flipH) { vm.flipCrop() }
-            ToolButton(Icons.Filled.SwapHoriz, "Swap W/H") { vm.swapCropRatio() }
+            ToolButton(Icons.Filled.SwapHoriz, "W/H") { vm.swapCropRatio() }
             ToolButton(Icons.Filled.RestartAlt, "Reset") { vm.resetCrop() }
         }
     }
@@ -493,50 +496,48 @@ private fun StraightenRuler(vm: EditorViewModel) {
 @Composable
 private fun GuideChip(g: CropGuide, selected: Boolean, turn: Int, onClick: () -> Unit) {
     Column(
-        Modifier.width(64.dp).clip(RoundedCornerShape(8.dp)).clickable(onClickLabel = g.label, onClick = onClick),
+        Modifier.width(54.dp).clip(RoundedCornerShape(8.dp)).clickable(onClickLabel = g.label, onClick = onClick),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        val stroke = if (selected) FD.Amber else Color(0xFFC9C8C3)
+        val stroke = if (selected) FD.Text else Color(0xFF8E8D88)
         Box(
             Modifier
-                .size(58.dp, 40.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(if (selected) FD.AmberDim else FD.Surface)
-                .border(if (selected) 2.dp else 1.dp, if (selected) FD.Amber else FD.Line, RoundedCornerShape(8.dp)),
+                .size(46.dp, 32.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .background(FD.Surface)
+                .border(if (selected) 1.5.dp else 1.dp, if (selected) FD.Text else FD.Line, RoundedCornerShape(6.dp)),
             contentAlignment = Alignment.Center,
         ) {
-            Canvas(Modifier.size(44.dp, 28.dp)) {
+            Canvas(Modifier.size(36.dp, 22.dp)) {
                 val b = Rect(Offset.Zero, size)
                 if (g == CropGuide.Off) {
-                    drawLine(Color(0xFF6B6B67), Offset(6f, size.height - 4f), Offset(size.width - 6f, 4f), 1.5.dp.toPx())
+                    drawLine(Color(0xFF6B6B67), Offset(4f, size.height - 3f), Offset(size.width - 4f, 3f), 1.5.dp.toPx())
                 } else {
                     drawRect(stroke.copy(alpha = 0.5f), style = Stroke(1.dp.toPx()))
-                    drawGuide(g, turn, b, stroke, 1.2.dp.toPx())
+                    drawGuide(g, turn, b, stroke, 1.dp.toPx())
                 }
             }
         }
-        Spacer(Modifier.height(4.dp))
+        Spacer(Modifier.height(3.dp))
         Text(
-            g.label, fontSize = 11.sp, color = if (selected) FD.Amber else FD.Muted,
+            g.label, fontSize = 10.sp, color = if (selected) FD.Text else FD.Muted, maxLines = 1,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
         )
     }
 }
 
 @Composable
-private fun RowScope.ToolButton(icon: ImageVector, label: String, on: Boolean = false, onClick: () -> Unit) {
-    Column(
+private fun ToolButton(icon: ImageVector, label: String, on: Boolean = false, onClick: () -> Unit) {
+    Row(
         Modifier
-            .weight(1f)
-            .height(52.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .background(if (on) FD.AmberDim else FD.Surface)
-            .border(1.dp, if (on) FD.Amber else FD.Line, RoundedCornerShape(12.dp))
-            .clickable(onClickLabel = label, onClick = onClick),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
+            .height(36.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(onClickLabel = label, onClick = onClick)
+            .padding(horizontal = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(icon, contentDescription = null, tint = if (on) FD.Amber else Color(0xFFC9C8C3), modifier = Modifier.size(20.dp))
-        Text(label, fontSize = 10.sp, color = Color(0xFFC9C8C3), maxLines = 1)
+        Icon(icon, contentDescription = null, tint = if (on) FD.Amber else FD.Text, modifier = Modifier.size(16.dp))
+        Spacer(Modifier.width(3.dp))
+        Text(label, fontSize = 12.sp, color = if (on) FD.Amber else FD.Text, maxLines = 1)
     }
 }

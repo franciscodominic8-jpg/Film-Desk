@@ -103,10 +103,38 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
     var tab: EditorTab
         get() = tabState
         set(v) {
+            if (sheet != null) doneSheet()
             val was = tabState
             tabState = v
             if ((was == EditorTab.Crop) != (v == EditorTab.Crop)) requestRender()
         }
+
+    // ------------------------------------------------------------- option sheets
+    /** The open option panel (e.g. "q:hl", "pro:Contrast", "film"), or null. */
+    var sheet by mutableStateOf<String?>(null); private set
+    /** Settings when the panel opened: ✕ goes back to these. */
+    private var sheetBefore: EditParams? = null
+
+    fun openSheet(id: String) {
+        if (sheet == id) return
+        if (sheet != null) commit()
+        sheetBefore = params
+        sheet = id
+    }
+
+    /** ✕: undo everything changed in the open panel. */
+    fun cancelSheet() {
+        sheetBefore?.let { updateParams(it) }
+        sheetBefore = null
+        sheet = null
+    }
+
+    /** ✓: keep the changes (one undo step). */
+    fun doneSheet() {
+        commit()
+        sheetBefore = null
+        sheet = null
+    }
 
     // ------------------------------------------------------------------ crop
     var cropGuide by mutableStateOf(CropGuide.Thirds)
@@ -210,7 +238,10 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
     /** True while the full-screen Curve editor is open. */
     var curveMode by mutableStateOf(false); private set
 
-    fun openCurve() { curveMode = true }
+    fun openCurve() {
+        if (sheet != null) doneSheet()
+        curveMode = true
+    }
 
     fun closeCurve() {
         pickerOff()
@@ -323,6 +354,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Export for the photo in the editor. */
     fun openExport() {
+        if (sheet != null) doneSheet()
         exportTargets = emptyList()
         navigate(Screen.Export)
     }
@@ -388,6 +420,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
     var recipesFromStudio by mutableStateOf(false); private set
 
     fun openRecipes() {
+        if (sheet != null) doneSheet()
         recipesFromStudio = screen != Screen.Editor
         recipeTargets = if (recipesFromStudio) selection else emptySet()
         // Previews show the recipes on the photo they will change.
@@ -433,6 +466,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Returns false when there is nothing to go back to (the system closes the app). */
     fun back(): Boolean {
+        if (screen == Screen.Editor && sheet != null) { cancelSheet(); return true }
         if (screen == Screen.Editor) flushSave()
         if (backStack.isEmpty()) {
             if (screen == Screen.Library) return false
@@ -465,6 +499,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Opens a Studio photo with its own saved edits (a new photo starts with none). */
     fun openItem(item: StudioItem) {
+        if (sheet != null) doneSheet()
         flushSave()
         clearSelection()
         val start = studio.firstOrNull { it.id == item.id }?.params ?: EditParams()
@@ -625,6 +660,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun undo() {
+        if (sheet != null) { sheet = null; sheetBefore = null }
         commit()
         if (undoStack.isEmpty()) return
         redoStack.addLast(params)
@@ -634,6 +670,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun redo() {
+        if (sheet != null) { sheet = null; sheetBefore = null }
         if (redoStack.isEmpty()) return
         undoStack.addLast(params)
         params = redoStack.removeLast()
@@ -649,6 +686,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
     // --------------------------------------------------------------- recipes
 
     fun saveRecipe(name: String) {
+        if (sheet != null) doneSheet()
         val r = Recipe(System.currentTimeMillis(), name.trim().ifEmpty { "My recipe" }.take(60), params.withoutGeometry())
         recipes = listOf(r) + recipes
         store.save(recipes)
@@ -1007,6 +1045,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Copy in the editor: the open photo's current edits. */
     fun copyCurrent() {
+        if (sheet != null) doneSheet()
         val item = studio.firstOrNull { it.id == currentId }
         clipboard = CopiedEdits(params, item?.let { displayName(it.uri) } ?: "this photo", currentId)
         message = "Edits copied"
@@ -1016,6 +1055,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Paste in the editor: applies the chosen parts to the open photo (undo works as usual). */
     fun pasteCurrent(parts: Set<PastePart>) {
+        if (sheet != null) doneSheet()
         val c = clipboard ?: return
         change(params.pasteFrom(c.params, parts))
         message = "Edits pasted"

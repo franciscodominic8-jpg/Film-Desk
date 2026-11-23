@@ -70,6 +70,10 @@ data class EditParams(
     val softHigh: Int = 100,
     val softLS: Int = 0,
     val softHS: Int = 0,
+    /** Soft clip linked: one set of values for R, G and B. Unlinked: [softRGB] is used. */
+    val softLink: Boolean = true,
+    /** Per-channel soft clip, 12 values: channel (R, G, B) × 4 + (Low, High, L.S., H.S.). */
+    val softRGB: List<Int> = SOFT_RGB_DEFAULT,
     // ---- Geometry ----
     /** Crop ratio lock: index into ASPECTS (ASPECT_FREE = no lock). */
     val aspect: Int = ASPECT_FREE,
@@ -102,6 +106,7 @@ data class EditParams(
         curveY = curveY, curveR = curveR, curveG = curveG, curveB = curveB,
         curveLinked = curveLinked, curveMix = curveMix,
         softLow = softLow, softHigh = softHigh, softLS = softLS, softHS = softHS,
+        softLink = softLink, softRGB = softRGB,
     ).withGeometryOf(this)
 
     /** Resets only the Pro adjustments. */
@@ -111,6 +116,7 @@ data class EditParams(
         glow = 0, glowStyle = 0, glowThreshold = 70, glowSize = 40, glowWarmth = 30, hslHue = ZERO8, hslSat = ZERO8, hslLum = ZERO8,
         curveY = IDENTITY_CURVE, curveR = IDENTITY_CURVE, curveG = IDENTITY_CURVE, curveB = IDENTITY_CURVE,
         curveLinked = true, curveMix = FULL_MIX, softLow = 0, softHigh = 100, softLS = 0, softHS = 0,
+        softLink = true, softRGB = SOFT_RGB_DEFAULT,
     )
 
     fun toJson(): JSONObject = JSONObject().apply {
@@ -133,6 +139,7 @@ data class EditParams(
         put("curveG", curveJson(curveG)); put("curveB", curveJson(curveB))
         put("curveLinked", curveLinked); put("curveMix", JSONArray(curveMix))
         put("softLow", softLow); put("softHigh", softHigh); put("softLS", softLS); put("softHS", softHS)
+        put("softLink", softLink); put("softRGB", JSONArray(softRGB))
         put("aspect", aspect); put("aspectFlip", aspectFlip); put("rotation", rotation); put("flipH", flipH)
         put("straighten", straighten.toDouble())
         put("cropL", cropL.toDouble()); put("cropT", cropT.toDouble()); put("cropR", cropR.toDouble()); put("cropB", cropB.toDouble())
@@ -193,6 +200,10 @@ data class EditParams(
                 curveMix = o.optJSONArray("curveMix")?.let { a -> List(4) { idx -> a.optInt(idx, 100).coerceIn(0, 100) } } ?: FULL_MIX,
                 softLow = i("softLow", 0, 100, 0), softHigh = i("softHigh", 0, 100, 100),
                 softLS = i("softLS", 0, 100, 0), softHS = i("softHS", 0, 100, 0),
+                softLink = o.optBoolean("softLink", true),
+                softRGB = o.optJSONArray("softRGB")?.takeIf { it.length() == 12 }
+                    ?.let { a -> List(12) { idx -> a.optInt(idx, SOFT_RGB_DEFAULT[idx]).coerceIn(0, 100) } }
+                    ?: SOFT_RGB_DEFAULT,
                 // Before free crop, aspect 0 ("Original") meant no crop: now that is Free.
                 aspect = if (!o.has("cropL") && o.optInt("aspect", 0) == 0) ASPECT_FREE else i("aspect", 0, ASPECTS.lastIndex, ASPECT_FREE),
                 aspectFlip = o.optBoolean("aspectFlip", false),

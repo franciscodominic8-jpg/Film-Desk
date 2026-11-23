@@ -15,6 +15,11 @@ import com.filmdesk.app.model.IDENTITY_CURVE
 import com.filmdesk.app.model.curveLut
 import com.filmdesk.app.model.isIdentityCurve
 import com.filmdesk.app.model.effectiveTone
+import com.filmdesk.app.model.softValue
+import com.filmdesk.app.model.SOFT_LOW
+import com.filmdesk.app.model.SOFT_HIGH
+import com.filmdesk.app.model.SOFT_LS
+import com.filmdesk.app.model.SOFT_HS
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -134,7 +139,7 @@ object ImageEngine {
         val crop = Bitmap.createBitmap(geoSource, x0, y0, cw, chh)
         val pre = p.copy(
             curveY = IDENTITY_CURVE, curveR = IDENTITY_CURVE, curveG = IDENTITY_CURVE, curveB = IDENTITY_CURVE,
-            softLow = 0, softHigh = 100, softLS = 0,
+            softLow = 0, softHigh = 100, softLS = 0, softRGB = List(12) { i -> if (i % 4 == SOFT_HIGH) 100 else if (i % 4 == SOFT_HS) p.softValue(i / 4, SOFT_HS) else 0 },
             saturation = 0, vibrance = 0, color = 0, colorChrome = 0, colorChromeBlue = 0,
             hslHue = List(8) { 0 }, hslSat = List(8) { 0 }, hslLum = List(8) { 0 },
             fade = 0, vignette = 0, grain = 0, glow = 0,
@@ -174,10 +179,11 @@ object ImageEngine {
         val gG: Float
         val gB: Float
         val dr: Int
-        val shoulderOn: Boolean
-        val knee: Float
-        val a: Float
-        val norm: Float
+        /** Highlight shoulder per channel R, G, B (DR + Soft Clip H.S.). */
+        val shoulderOn = BooleanArray(3)
+        val knee = FloatArray(3)
+        val a = FloatArray(3)
+        val norm = FloatArray(3)
         val hl: Float
         val sh: Float
         /** Chroma multiplier from the Fuji Q-menu "Color" setting (−4..+4). */
@@ -207,10 +213,11 @@ object ImageEngine {
         val mixG = p.curveMix.getOrElse(2) { 100 } / 100f
         val mixB = p.curveMix.getOrElse(3) { 100 } / 100f
         // Soft clip
-        val softOn = p.softLow != 0 || p.softHigh != 100 || p.softLS != 0
-        val outLow = p.softLow / 100f
-        val outHigh = max(outLow + 0.01f, p.softHigh / 100f)
-        val lsKnee = 0.5f * (p.softLS / 100f)         // shadows roll off below this
+        // Soft clip, per channel R, G, B (all the same when linked)
+        val outLow = FloatArray(3) { p.softValue(it, SOFT_LOW) / 100f }
+        val outHigh = FloatArray(3) { max(outLow[it] + 0.01f, p.softValue(it, SOFT_HIGH) / 100f) }
+        val lsKnee = FloatArray(3) { 0.5f * (p.softValue(it, SOFT_LS) / 100f) }  // shadows roll off below this
+        val softOn = (0..2).any { outLow[it] != 0f || outHigh[it] != 1f || lsKnee[it] != 0f }
         val hslOn = p.hslHue.any { it != 0 } || p.hslSat.any { it != 0 } || p.hslLum.any { it != 0 }
         val hueShift = FloatArray(8) { p.hslHue.getOrElse(it) { 0 } * 0.3f }
         val satShift = FloatArray(8) { p.hslSat.getOrElse(it) { 0 } / 100f }
@@ -232,21 +239,23 @@ object ImageEngine {
             sh = tone.shadow
             // Highlight roll-off in linear light, before anything is clipped:
             // Dynamic Range and the Soft Clip H.S. control share one smooth shoulder.
-            val hs = p.softHS / 100f
-            var k = when (d) { 1 -> 0.75f; 2 -> 0.6f; else -> 1f }
-            var range = 1f + d * 0.5f
-            if (hs > 0f) {
-                k = min(k, 1f - 0.45f * hs)
-                range = max(range, 1f + 2f * hs)
-            }
-            knee = k
-            shoulderOn = k < 1f
-            if (shoulderOn) {
-                a = 1f / (1f - knee)
-                norm = 1f - exp(-a * (range - knee))
-            } else {
-                a = 1f
-                norm = 1f
+            for (ch in 0..2) {
+                val hs = p.softValue(ch, SOFT_HS) / 100f
+                var k = when (d) { 1 -> 0.75f; 2 -> 0.6f; else -> 1f }
+                var range = 1f + d * 0.5f
+                if (hs > 0f) {
+                    k = min(k, 1f - 0.45f * hs)
+                    range = max(range, 1f + 2f * hs)
+                }
+                knee[ch] = k
+                shoulderOn[ch] = k < 1f
+                if (k < 1f) {
+                    a[ch] = 1f / (1f - k)
+                    norm[ch] = 1f - exp(-a[ch] * (range - k))
+                } else {
+                    a[ch] = 1f
+                    norm[ch] = 1f
+                }
             }
         }
     }
@@ -302,9 +311,9 @@ object ImageEngine {
             while (i < end) {
                 val c = px[i]
                 // 1. linear light, white balance, exposure, dynamic range, back to gamma
-                var r = enc(shoulder(toLinear[(c shr 16) and 255] * q.gR, q))
-                var g = enc(shoulder(toLinear[(c shr 8) and 255] * q.gG, q))
-                var b = enc(shoulder(toLinear[c and 255] * q.gB, q))
+                var r = enc(shoulder(toLinear[(c shr 16) and 255] * q.gR, q, 0))
+                var g = enc(shoulder(toLinear[(c shr 8) and 255] * q.gG, q, 1))
+                var b = enc(shoulder(toLinear[c and 255] * q.gB, q, 2))
 
                 // 2. film simulation (OKLab: tone and colour handled separately)
                 filmLook(r, g, b, sim, lab, rgbTmp)
@@ -362,7 +371,7 @@ object ImageEngine {
                 }
                 // 3c. Soft clip: smooth roll-off instead of hard clipping, then output range.
                 if (q.softOn) {
-                    r = softClip(r, q); g = softClip(g, q); b = softClip(b, q)
+                    r = softClip(r, q, 0); g = softClip(g, q, 1); b = softClip(b, q, 2)
                 }
 
                 // 4. Saturation / Vibrance / Fuji Color — scales chroma in OKLab, so brightness
@@ -914,13 +923,13 @@ object ImageEngine {
      * Soft clip (like DaVinci's): L.S. lifts crushed shadows gently, then Low/High set the
      * output black and white levels. (H.S. is applied earlier, in linear light — see Prepared.)
      */
-    private fun softClip(v: Float, q: Prepared): Float {
+    private fun softClip(v: Float, q: Prepared, ch: Int): Float {
         var x = v
-        if (q.lsKnee > 0f && x < q.lsKnee) {
-            val span = q.lsKnee
-            x = q.lsKnee - span * tanh((q.lsKnee - x) / span)
+        val ls = q.lsKnee[ch]
+        if (ls > 0f && x < ls) {
+            x = ls - ls * tanh((ls - x) / ls)
         }
-        return q.outLow + (q.outHigh - q.outLow) * x.coerceIn(0f, 1f)
+        return q.outLow[ch] + (q.outHigh[ch] - q.outLow[ch]) * x.coerceIn(0f, 1f)
     }
 
     private fun ci(v: Float): Int = (v.coerceIn(0f, 1f) * (CURVE_LUT - 1) + 0.5f).toInt()
@@ -958,9 +967,10 @@ object ImageEngine {
         return Histogram(norm(hy), norm(hr), norm(hg), norm(hb))
     }
 
-    private fun shoulder(x: Float, q: Prepared): Float {
-        if (!q.shoulderOn || x <= q.knee) return x
-        return q.knee + (1f - q.knee) * min(1f, (1f - exp(-q.a * (x - q.knee))) / q.norm)
+    private fun shoulder(x: Float, q: Prepared, ch: Int): Float {
+        val k = q.knee[ch]
+        if (!q.shoulderOn[ch] || x <= k) return x
+        return k + (1f - k) * min(1f, (1f - exp(-q.a[ch] * (x - k))) / q.norm[ch])
     }
 
     private fun enc(v: Float): Float = toGamma[(v.coerceIn(0f, 1f) * ENC).toInt()]

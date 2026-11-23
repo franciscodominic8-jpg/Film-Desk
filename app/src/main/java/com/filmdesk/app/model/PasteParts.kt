@@ -40,6 +40,7 @@ fun EditParams.pasteFrom(src: EditParams, parts: Set<PastePart>): EditParams {
             curveY = src.curveY, curveR = src.curveR, curveG = src.curveG, curveB = src.curveB,
             curveLinked = src.curveLinked, curveMix = src.curveMix,
             softLow = src.softLow, softHigh = src.softHigh, softLS = src.softLS, softHS = src.softHS,
+            softLink = src.softLink, softRGB = src.softRGB,
         )
         PastePart.Detail -> p.copy(
             sharpness = src.sharpness, noiseReduction = src.noiseReduction,

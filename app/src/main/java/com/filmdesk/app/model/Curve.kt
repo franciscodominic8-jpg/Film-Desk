@@ -109,12 +109,52 @@ val EditParams.hasCurves: Boolean
     get() = !isIdentityCurve(curveY) || !isIdentityCurve(curveR) || !isIdentityCurve(curveG) || !isIdentityCurve(curveB)
 
 val EditParams.hasSoftClip: Boolean
-    get() = softLow != 0 || softHigh != 100 || softLS != 0 || softHS != 0
+    get() = if (softLink) softLow != 0 || softHigh != 100 || softLS != 0 || softHS != 0
+    else softRGB != SOFT_RGB_DEFAULT
+
+/** Soft clip value index: Low, High, L.S., H.S. */
+const val SOFT_LOW = 0
+const val SOFT_HIGH = 1
+const val SOFT_LS = 2
+const val SOFT_HS = 3
+val SOFT_RGB_DEFAULT: List<Int> = List(12) { if (it % 4 == SOFT_HIGH) 100 else 0 }
+
+/** Soft clip value [kind] for channel [ch] (0 R, 1 G, 2 B), from the linked set when linked. */
+fun EditParams.softValue(ch: Int, kind: Int): Int =
+    if (softLink) when (kind) { SOFT_LOW -> softLow; SOFT_HIGH -> softHigh; SOFT_LS -> softLS; else -> softHS }
+    else softRGB.getOrElse(ch * 4 + kind) { if (kind == SOFT_HIGH) 100 else 0 }
+
+/**
+ * Sets soft clip [kind] to [v]. Linked: the shared value. Unlinked: only channel [ch].
+ * Low stays below High.
+ */
+fun EditParams.withSoft(ch: Int, kind: Int, v: Int): EditParams {
+    val lo = softValue(ch, SOFT_LOW)
+    val hi = softValue(ch, SOFT_HIGH)
+    val x = when (kind) {
+        SOFT_LOW -> v.coerceIn(0, hi - 1)
+        SOFT_HIGH -> v.coerceIn(lo + 1, 100)
+        else -> v.coerceIn(0, 100)
+    }
+    return if (softLink) when (kind) {
+        SOFT_LOW -> copy(softLow = x); SOFT_HIGH -> copy(softHigh = x); SOFT_LS -> copy(softLS = x); else -> copy(softHS = x)
+    } else copy(softRGB = softRGB.toMutableList().also { it[ch * 4 + kind] = x })
+}
+
+/** Link or unlink soft clip; unlinking starts every channel from the shared values. */
+fun EditParams.withSoftLink(link: Boolean): EditParams =
+    if (link == softLink) this
+    else if (link) copy(
+        softLink = true,
+        softLow = softRGB[SOFT_LOW], softHigh = softRGB[SOFT_HIGH], softLS = softRGB[SOFT_LS], softHS = softRGB[SOFT_HS],
+    )
+    else copy(softLink = false, softRGB = List(12) { softValue(0, it % 4) })
 
 /** Resets every curve, intensity, link and soft clip setting. */
 fun EditParams.resetCurves(): EditParams = copy(
     curveY = IDENTITY_CURVE, curveR = IDENTITY_CURVE, curveG = IDENTITY_CURVE, curveB = IDENTITY_CURVE,
     curveLinked = true, curveMix = List(4) { 100 }, softLow = 0, softHigh = 100, softLS = 0, softHS = 0,
+    softLink = true, softRGB = SOFT_RGB_DEFAULT,
 )
 
 fun EditParams.withMix(channel: Int, v: Int): EditParams =
