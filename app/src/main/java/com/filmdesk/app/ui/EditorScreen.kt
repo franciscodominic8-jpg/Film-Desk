@@ -385,7 +385,3 @@ private fun SimChip(sim: FilmSim, thumb: Bitmap?, selected: Boolean, onClick: ()
         )
     }
 }
-
-// ------------------------------------------------------------------ Crop tab
-
-@OptIn(ExperimentalLayoutApi::class)
