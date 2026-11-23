@@ -40,6 +40,18 @@ jobs:
             [ -n "$line" ] && echo "::warning::$line"
           done
 
+      # Also save the errors to the ci-logs branch, so they can be read with git.
+      - name: Save error log
+        if: failure()
+        run: |
+          grep -E "^e: |What went wrong|^> " build.log | sed -E 's#file:///home/runner/work/[^/]+/[^/]+/##' | head -80 > errors.txt || true
+          git config user.name "ci"; git config user.email "ci@users.noreply.github.com"
+          git checkout --orphan ci-logs-tmp
+          git rm -rq --cached . || true
+          git add -f errors.txt
+          git commit -qm "Build ${{ github.run_number }} errors (${{ github.sha }})"
+          git push -f origin HEAD:refs/heads/ci-logs
+
       - name: Name the APK
         run: cp app/build/outputs/apk/release/app-release.apk FilmDesk.apk
 
