@@ -7,9 +7,10 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -61,6 +62,8 @@ import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -72,6 +75,7 @@ import com.filmdesk.app.model.CropGuide
 import com.filmdesk.app.model.CropHandle
 import com.filmdesk.app.model.cropRect
 import com.filmdesk.app.model.dragCrop
+import com.filmdesk.app.model.hasCropRect
 import com.filmdesk.app.model.lockRatio
 import com.filmdesk.app.model.ratioLabel
 import com.filmdesk.app.model.straightenScale
@@ -91,28 +95,42 @@ import kotlin.math.roundToInt
  */
 @Composable
 internal fun CropView(vm: EditorViewModel, modifier: Modifier) {
-    val bmp = vm.preview ?: vm.source
+    val bmp = vm.preview
+    val p0 = vm.params
+    // Only draw the frame on the whole, upright photo with the current 90° turn and flip
+    // (right after switching tabs or turning, the old picture is still on screen).
+    val ready = vm.previewFor?.let {
+        it.straighten == 0f && !it.hasCropRect && it.rotation == p0.rotation && it.flipH == p0.flipH
+    } == true
     Box(modifier.background(Color.Black).clipToBounds(), contentAlignment = Alignment.Center) {
-        if (vm.loading || bmp == null) {
+        if (vm.loading || bmp == null || !ready) {
             CircularProgressIndicator(color = FD.Amber)
             return@Box
         }
         val img = remember(bmp) { bmp.asImageBitmap() }
         val iw = bmp.width
         val ih = bmp.height
-        var zoom by remember { mutableFloatStateOf(1f) }
-        var pan by remember { mutableStateOf(Offset.Zero) }
+        // New photo, turn, flip or Reset: back to no zoom.
+        val zoom = remember(vm.currentId, p0.rotation, p0.flipH, vm.cropResets) { CropZoom() }
         BoxWithConstraints(
             Modifier
                 .fillMaxSize()
-                .pointerInput(Unit) {
-                    // Two fingers: zoom in for a precise crop (one finger moves the frame).
-                    detectTransformGestures { _, dPan, dZoom, _ ->
-                        zoom = (zoom * dZoom).coerceIn(1f, 4f)
-                        pan = if (zoom <= 1.001f) Offset.Zero else Offset(
-                            (pan.x + dPan.x).coerceIn(-size.width * (zoom - 1) / 2f, size.width * (zoom - 1) / 2f),
-                            (pan.y + dPan.y).coerceIn(-size.height * (zoom - 1) / 2f, size.height * (zoom - 1) / 2f),
-                        )
+                .onSizeChanged { zoom.area = it }
+                .pointerInput(zoom) {
+                    // Two fingers anywhere: zoom and move. One finger moves a zoomed view when it
+                    // isn't dragging the frame. Runs even after a frame drag, so pinch always works.
+                    awaitEachGesture {
+                        awaitFirstDown(requireUnconsumed = false)
+                        do {
+                            val e = awaitPointerEvent()
+                            val pressed = e.changes.count { it.pressed }
+                            if (pressed >= 2) {
+                                zoom.apply(e.calculateZoom(), e.calculatePan())
+                                e.changes.forEach { it.consume() }
+                            } else if (pressed == 1 && zoom.zoom > 1.001f && e.changes.none { it.isConsumed }) {
+                                zoom.apply(1f, e.calculatePan())
+                            }
+                        } while (e.changes.any { it.pressed })
                     }
                 }
                 .padding(22.dp),
@@ -126,7 +144,7 @@ internal fun CropView(vm: EditorViewModel, modifier: Modifier) {
             Box(
                 Modifier
                     .size(wDp, hDp)
-                    .graphicsLayer { scaleX = zoom; scaleY = zoom; translationX = pan.x; translationY = pan.y }
+                    .graphicsLayer { scaleX = zoom.zoom; scaleY = zoom.zoom; translationX = zoom.pan.x; translationY = zoom.pan.y }
             ) {
                 val s = straightenScale(p.straighten, iw, ih)
                 Image(
@@ -137,7 +155,7 @@ internal fun CropView(vm: EditorViewModel, modifier: Modifier) {
                         .clipToBounds()
                         .graphicsLayer { rotationZ = p.straighten; scaleX = s; scaleY = s },
                 )
-                CropOverlay(vm, iw, ih, Modifier.fillMaxSize())
+                CropOverlay(vm, iw, ih, zoom, Modifier.fillMaxSize())
             }
         }
         Badge(cropBadge(vm, iw, ih), Modifier.align(Alignment.TopCenter).padding(top = 8.dp))
@@ -147,6 +165,20 @@ internal fun CropView(vm: EditorViewModel, modifier: Modifier) {
                 Modifier.align(Alignment.BottomStart).padding(10.dp),
             )
         }
+    }
+}
+
+/** Pinch-zoom of the crop view (1× to 4×), kept inside the view. */
+internal class CropZoom {
+    var zoom by mutableFloatStateOf(1f)
+    var pan by mutableStateOf(Offset.Zero)
+    var area = IntSize.Zero
+
+    fun apply(dZoom: Float, dPan: Offset) {
+        zoom = (zoom * dZoom).coerceIn(1f, 4f)
+        val mx = area.width * (zoom - 1f) / 2f
+        val my = area.height * (zoom - 1f) / 2f
+        pan = if (zoom <= 1.001f) Offset.Zero else Offset((pan.x + dPan.x).coerceIn(-mx, mx), (pan.y + dPan.y).coerceIn(-my, my))
     }
 }
 
@@ -167,10 +199,10 @@ private fun signedDeg(v: Float): String {
 }
 
 @Composable
-private fun CropOverlay(vm: EditorViewModel, iw: Int, ih: Int, modifier: Modifier) {
+private fun CropOverlay(vm: EditorViewModel, iw: Int, ih: Int, zoom: CropZoom, modifier: Modifier) {
     val params by rememberUpdatedState(vm.params)
     Canvas(
-        modifier.pointerInput(iw, ih) {
+        modifier.pointerInput(iw, ih, zoom) {
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false)
                 val w = size.width.toFloat()
@@ -184,8 +216,16 @@ private fun CropOverlay(vm: EditorViewModel, iw: Int, ih: Int, modifier: Modifie
                 var dragging = false
                 while (true) {
                     val ev = awaitPointerEvent()
-                    if (ev.changes.size > 1) break            // second finger: let pinch-zoom take over
-                    val ch = ev.changes.first()
+                    if (ev.changes.count { it.pressed } > 1) {
+                        // A second finger: this is a pinch. Undo any start of a frame drag and zoom.
+                        if (dragging) {
+                            vm.updateParams(vm.params.withCropRect(r0))
+                            dragging = false
+                            vm.cropHandle = null
+                        }
+                        break // not consumed: the crop view's pinch handler zooms
+                    }
+                    val ch = ev.changes.firstOrNull { it.id == down.id } ?: break
                     if (!ch.pressed) break
                     val d = ch.position - down.position
                     if (!dragging && d.getDistance() > viewConfiguration.touchSlop) {

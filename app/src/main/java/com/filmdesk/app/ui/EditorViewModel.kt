@@ -120,6 +120,10 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
     var straightening by mutableStateOf(false)
     /** Long edge of the full-size photo, for showing the crop size in pixels. */
     var fullLongEdge by mutableIntStateOf(0); private set
+    /** The settings the current preview was drawn with (the crop view waits for an upright one). */
+    var previewFor by mutableStateOf<EditParams?>(null); private set
+    /** Bumped by Reset so the crop view also resets its zoom. */
+    var cropResets by mutableIntStateOf(0); private set
 
     fun pickGuide(g: CropGuide) {
         if (g == cropGuide) guideTurn = (guideTurn + 1) % g.turns else { cropGuide = g; guideTurn = 0 }
@@ -191,6 +195,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun resetCrop() {
+        cropResets++
         change(params.withGeometryOf(EditParams()))
     }
 
@@ -319,6 +324,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
     private fun loadImage(uri: Uri, id: Long, start: EditParams) {
         loading = true
         preview = null
+        previewFor = null
         original = null
         navigate(Screen.Editor)
         viewModelScope.launch {
@@ -326,6 +332,8 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
             val bmp = withContext(Dispatchers.IO) {
                 try { BitmapIO.decode(ctx, uri, PREVIEW_EDGE) } catch (e: Exception) { null } catch (e: OutOfMemoryError) { null }
             }
+            // Full size first, so the crop size shows real pixels from the start.
+            if (bmp != null) fullLongEdge = withContext(Dispatchers.IO) { BitmapIO.longEdge(ctx, uri) }
             if (bmp == null) {
                 loading = false
                 message = "Couldn't open this photo"
@@ -342,7 +350,6 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
                 )
             }
             stats = withContext(Dispatchers.Default) { ImageEngine.computeStats(bmp) }
-            fullLongEdge = withContext(Dispatchers.IO) { BitmapIO.longEdge(ctx, uri) }
             currentId = id
             params = start
             committed = params
@@ -367,6 +374,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
                 val out = withContext(Dispatchers.Default) { ImageEngine.render(src, p, st) }
                 original = geo
                 preview = out
+                previewFor = p
                 histogram = withContext(Dispatchers.Default) { ImageEngine.histogram(out) }
                 resample()
             } catch (e: CancellationException) {
