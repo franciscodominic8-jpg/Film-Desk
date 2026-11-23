@@ -20,9 +20,16 @@ import com.filmdesk.app.data.StudioStore
 import com.filmdesk.app.engine.BitmapIO
 import com.filmdesk.app.engine.ImageEngine
 import com.filmdesk.app.engine.ImageStats
-import com.filmdesk.app.model.EXPORT_SIZES
 import com.filmdesk.app.model.EditParams
 import com.filmdesk.app.model.ExportFormat
+import com.filmdesk.app.model.ExportPreset
+import com.filmdesk.app.model.ExportSettings
+import com.filmdesk.app.model.SizeMode
+import com.filmdesk.app.model.formatBytes
+import com.filmdesk.app.model.targetSize
+import com.filmdesk.app.engine.Exporter
+import org.json.JSONArray
+import org.json.JSONObject
 import com.filmdesk.app.model.FILM_SIMS
 import com.filmdesk.app.model.ASPECT_FREE
 import com.filmdesk.app.model.ASPECT_ORIGINAL
@@ -52,15 +59,6 @@ import kotlin.math.roundToInt
 enum class Screen { Library, Import, Editor, Recipes, Export }
 
 enum class EditorTab(val label: String) { Film("Film"), QMenu("Q Menu"), Pro("Pro"), Crop("Crop") }
-
-data class ExportSettings(
-    val format: ExportFormat = ExportFormat.JPEG,
-    val quality: Int = 92,
-    val size: Int = 0,
-    val embedRecipe: Boolean = true,
-    /** Copy GPS location from the original photo (off by default for privacy). */
-    val keepLocation: Boolean = false,
-)
 
 /** Edits on the clipboard, from the photo called [fromName]. */
 data class CopiedEdits(val params: EditParams, val fromName: String, val fromId: Long?)
@@ -265,24 +263,122 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         get() = exportState
         set(v) {
             exportState = v
-            exportPrefs.edit()
-                .putString("format", v.format.name).putInt("quality", v.quality).putInt("size", v.size)
-                .putBoolean("embedRecipe", v.embedRecipe).putBoolean("keepLocation", v.keepLocation)
-                .apply()
+            exportPrefs.edit().putString("settings", v.toJson().toString()).apply()
+            scheduleEstimate()
         }
 
     private fun loadExportSettings(): ExportSettings {
+        exportPrefs.getString("settings", null)?.let { raw ->
+            try { return ExportSettings.fromJson(JSONObject(raw)) } catch (e: Exception) { }
+        }
+        // Settings saved by the previous version.
         val d = ExportSettings()
         return try {
-            ExportSettings(
+            val size = exportPrefs.getInt("size", 0)
+            d.copy(
                 format = ExportFormat.entries.firstOrNull { it.name == exportPrefs.getString("format", null) } ?: d.format,
-                quality = exportPrefs.getInt("quality", d.quality).coerceIn(60, 100),
-                size = exportPrefs.getInt("size", d.size).coerceIn(0, EXPORT_SIZES.lastIndex),
+                quality = exportPrefs.getInt("quality", d.quality).coerceIn(10, 100),
+                sizeMode = if (size == 0) SizeMode.Full else SizeMode.LongEdge,
+                longEdge = when (size) { 1 -> 4096; 3 -> 1080; else -> 2048 },
                 embedRecipe = exportPrefs.getBoolean("embedRecipe", d.embedRecipe),
                 keepLocation = exportPrefs.getBoolean("keepLocation", d.keepLocation),
             )
         } catch (e: Exception) {
             d
+        }
+    }
+
+    /** The user's own export presets (the built-in ones are in BUILT_IN_PRESETS). */
+    var exportPresets by mutableStateOf(loadPresets()); private set
+
+    private fun loadPresets(): List<ExportPreset> = try {
+        val arr = JSONArray(exportPrefs.getString("presets", "[]"))
+        (0 until arr.length()).mapNotNull { ExportPreset.fromJson(arr.optJSONObject(it)) }
+    } catch (e: Exception) {
+        emptyList()
+    }
+
+    private fun savePresets(list: List<ExportPreset>) {
+        exportPresets = list
+        exportPrefs.edit().putString("presets", ExportPreset.listToJson(list).toString()).apply()
+    }
+
+    fun saveExportPreset(name: String) {
+        val n = name.trim().ifEmpty { "My preset" }.take(40)
+        savePresets(exportPresets.filterNot { it.name == n } + ExportPreset(n, exportSettings))
+        message = "Saved preset “$n”"
+    }
+
+    fun deleteExportPreset(p: ExportPreset) {
+        savePresets(exportPresets.filterNot { it.name == p.name })
+    }
+
+    fun applyExportPreset(p: ExportPreset) {
+        exportSettings = p.applyTo(exportSettings)
+    }
+
+    /** Studio photos being exported together (empty = the photo open in the editor). */
+    var exportTargets by mutableStateOf<List<Long>>(emptyList()); private set
+
+    /** Export for the photo in the editor. */
+    fun openExport() {
+        exportTargets = emptyList()
+        navigate(Screen.Export)
+    }
+
+    /** Export for the photos selected in the Studio. */
+    fun openBatchExport() {
+        exportTargets = studio.filter { it.id in selection }.map { it.id }
+        if (exportTargets.isEmpty()) return
+        navigate(Screen.Export)
+    }
+
+    /** Size of the open photo's crop at full resolution, and of the whole photo. */
+    fun fullSizes(): Pair<Pair<Int, Int>, Pair<Int, Int>>? {
+        val src = source ?: return null
+        val (bw, bh) = if (params.rotation % 180 == 0) src.width to src.height else src.height to src.width
+        val k = if (fullLongEdge > 0) fullLongEdge / max(src.width, src.height).toFloat() else 1f
+        val r = params.cropRect(bw, bh)
+        val crop = ((r[2] - r[0]) * bw * k).roundToInt() to ((r[3] - r[1]) * bh * k).roundToInt()
+        return crop to ((bw * k).roundToInt() to (bh * k).roundToInt())
+    }
+
+    /** Output size of the open photo with [s]. */
+    fun exportSize(s: ExportSettings = exportSettings): Pair<Int, Int>? {
+        val (crop, _) = fullSizes() ?: return null
+        return targetSize(crop.first, crop.second, s, BitmapIO.maxExportLongEdge())
+    }
+
+    /** Rough file size of the export (from encoding the preview), or null while unknown. */
+    var exportEstimate by mutableStateOf<Long?>(null); private set
+    private var estimateJob: Job? = null
+
+    fun scheduleEstimate() {
+        estimateJob?.cancel()
+        exportEstimate = null
+        if (screen != Screen.Export || exportTargets.isNotEmpty()) return
+        val s = exportSettings
+        val (tw, th) = exportSize(s) ?: return
+        val src = (if (tabState == EditorTab.Crop) currentId?.let { studioThumbs[it] } else preview) ?: return
+        estimateJob = viewModelScope.launch {
+            delay(250)
+            val est = withContext(Dispatchers.Default) {
+                try {
+                    val k = min(1f, max(tw, th) / max(src.width, src.height).toFloat())
+                    val b = if (k < 1f) Bitmap.createScaledBitmap(src, (src.width * k).roundToInt().coerceAtLeast(2), (src.height * k).roundToInt().coerceAtLeast(2), true) else src
+                    val enc = Exporter.encodeFitting(getApplication(), b, s.copy(limitSize = false))
+                    // A big photo compresses a bit better per pixel than the small preview.
+                    val scale = tw.toFloat() * th / (b.width.toFloat() * b.height)
+                    var bytes = (enc.bytes.size * scale * (if (scale > 1.5f) 0.85f else 1f)).toLong()
+                    if (s.limitSize && s.canLimitSize) bytes = min(bytes, (s.limitMb * 1_000_000).toLong())
+                    bytes
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Throwable) {
+                    null
+                }
+            }
+            exportEstimate = est
         }
     }
 
@@ -590,36 +686,54 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---------------------------------------------------------------- export
 
-    /** Renders one photo at export size and saves or shares it. Returns the output size. */
-    private suspend fun exportOne(uri: Uri, p: EditParams, knownStats: ImageStats?, s: ExportSettings, share: Boolean): String {
+    /** Renders one photo with its edits at the export size, then saves or shares it. */
+    private suspend fun exportOne(
+        uri: Uri, p: EditParams, knownStats: ImageStats?, s: ExportSettings, share: Boolean, name: String,
+    ): ExportResult {
         val ctx = getApplication<Application>()
         val limit = BitmapIO.maxExportLongEdge()
-        val edge = min(EXPORT_SIZES[s.size] ?: limit, limit)
+        val (w0, h0) = withContext(Dispatchers.IO) { Exporter.orientedSize(ctx, uri) }
+            ?: error("Couldn't read the original photo")
+        val (w, h) = if (p.rotation % 180 == 0) w0 to h0 else h0 to w0
+        val r = p.cropRect(w, h)
+        val cw = ((r[2] - r[0]) * w).roundToInt().coerceAtLeast(1)
+        val ch = ((r[3] - r[1]) * h).roundToInt().coerceAtLeast(1)
+        val (tw, th) = targetSize(cw, ch, s, limit)
+        // Decode just big enough for the crop to reach the export size (within memory limits).
+        val need = (max(w, h) * max(tw / cw.toFloat(), th / ch.toFloat())).roundToInt() + 2
+        val edge = need.coerceIn(64, min(max(w, h), limit))
         val full = withContext(Dispatchers.IO) { BitmapIO.decode(ctx, uri, edge) }
             ?: error("Couldn't read the original photo")
         val st = knownStats ?: withContext(Dispatchers.Default) { ImageEngine.computeStats(full) }
-        val out = withContext(Dispatchers.Default) { ImageEngine.render(full, p, st) }
-        val json = if (s.embedRecipe && s.format == ExportFormat.JPEG) p.toJson().toString() else null
-        if (share) {
-            withContext(Dispatchers.IO) { BitmapIO.share(ctx, out, s.format, s.quality, uri, json, s.keepLocation) }
-        } else {
-            withContext(Dispatchers.IO) { BitmapIO.saveToGallery(ctx, out, s.format, s.quality, json, uri, s.keepLocation) }
-                ?: error("Couldn't save the photo")
+        val rendered = withContext(Dispatchers.Default) { ImageEngine.render(full, p, st) }
+        val out = withContext(Dispatchers.Default) { Exporter.finish(rendered, tw, th, s) }
+        val enc = withContext(Dispatchers.Default) { Exporter.encodeFitting(ctx, out, s) }
+        withContext(Dispatchers.IO) {
+            val tags = Exporter.metadata(ctx, uri, s, p)
+            if (share) Exporter.share(ctx, enc.bytes, s, tags, out.width, out.height, name)
+            else Exporter.saveToGallery(ctx, enc.bytes, s, tags, out.width, out.height, name)
         }
-        return "${out.width}×${out.height}"
+        return ExportResult(out.width, out.height, enc.bytes.size.toLong(), enc.fits)
     }
 
+    class ExportResult(val w: Int, val h: Int, val bytes: Long, val fits: Boolean)
+
     fun export(share: Boolean) {
+        if (exportTargets.isNotEmpty()) { if (!share) exportBatch(); return }
         val uri = sourceUri ?: return
         if (exporting) return
+        flushSave()
         val s = exportSettings
         val p = params
         val st = stats
         exporting = true
         viewModelScope.launch {
             try {
-                val size = exportOne(uri, p, st, s, share)
-                if (!share) message = "Saved to Pictures/FilmDesk ($size)"
+                val res = exportOne(uri, p, st, s, share, "FilmDesk_${System.currentTimeMillis()}")
+                if (!share) {
+                    message = "Saved to Pictures/${s.folderPath} (${res.w} × ${res.h} · ${formatBytes(res.bytes)})"
+                }
+                if (!res.fits) message = "Over ${s.limitMb.clean()} MB even at the lowest quality — choose a smaller size"
             } catch (e: CancellationException) {
                 throw e
             } catch (e: OutOfMemoryError) {
@@ -629,6 +743,48 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
             } finally {
                 exporting = false
             }
+        }
+    }
+
+    private fun Float.clean() = if (this == roundToInt().toFloat()) roundToInt().toString() else toString()
+
+    /** Saves every target photo with its own edits, using the current export settings. */
+    private fun exportBatch() {
+        if (exporting) return
+        flushSave()
+        val items = studio.filter { it.id in exportTargets }
+        if (items.isEmpty()) return
+        val s = exportSettings
+        exporting = true
+        viewModelScope.launch {
+            var ok = 0
+            var total = 0L
+            var lastError: String? = null
+            val stamp = System.currentTimeMillis()
+            try {
+                for ((i, item) in items.withIndex()) {
+                    batchProgress = "Exporting ${i + 1} of ${items.size}…"
+                    try {
+                        val res = exportOne(item.uri, item.params ?: EditParams(), null, s, false, "FilmDesk_${stamp}_${i + 1}")
+                        ok++
+                        total += res.bytes
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: OutOfMemoryError) {
+                        lastError = "not enough memory"
+                    } catch (e: Throwable) {
+                        lastError = e.message
+                    }
+                }
+            } finally {
+                batchProgress = null
+                exporting = false
+            }
+            clearSelection()
+            exportTargets = emptyList()
+            back()
+            message = if (ok == items.size) "Saved $ok to Pictures/${s.folderPath} (${formatBytes(total)})"
+            else "Saved $ok of ${items.size}" + (lastError?.let { " — $it" } ?: "")
         }
     }
 
@@ -880,36 +1036,6 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         if (currentId in targets) { flushSave(); currentId = null }
         clearSelection()
         offerUndo("Removed ${targets.size} from Studio (originals are kept)", before)
-    }
-
-    /** Saves every selected photo with its own edits, using the current export settings. */
-    fun exportSelection() {
-        if (exporting) return
-        val items = studio.filter { it.id in selection }
-        if (items.isEmpty()) return
-        val s = exportSettings
-        exporting = true
-        clearSelection()
-        viewModelScope.launch {
-            var ok = 0
-            try {
-                for ((i, item) in items.withIndex()) {
-                    batchProgress = "Exporting ${i + 1} of ${items.size}…"
-                    try {
-                        exportOne(item.uri, item.params ?: EditParams(), null, s, share = false)
-                        ok++
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (e: Throwable) {
-                        // Skip photos that can't be read or don't fit in memory.
-                    }
-                }
-            } finally {
-                batchProgress = null
-                exporting = false
-            }
-            message = if (ok == items.size) "Saved $ok to Pictures/FilmDesk" else "Saved $ok of ${items.size} to Pictures/FilmDesk"
-        }
     }
 
     companion object {

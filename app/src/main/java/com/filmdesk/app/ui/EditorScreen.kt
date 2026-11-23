@@ -165,7 +165,7 @@ private fun EditorTopBar(vm: EditorViewModel) {
             }
         }
         Button(
-            onClick = { vm.navigate(Screen.Export) },
+            onClick = { vm.openExport() },
             enabled = vm.hasImage,
             colors = ButtonDefaults.buttonColors(containerColor = FD.Amber, contentColor = FD.OnAmber),
             contentPadding = PaddingValues(horizontal = 12.dp),

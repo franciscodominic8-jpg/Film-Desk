@@ -38,13 +38,6 @@ val ASPECTS = listOf(
     Aspect("Free", -1f),
 )
 
-enum class ExportFormat(val label: String, val mime: String, val ext: String) {
-    JPEG("JPEG", "image/jpeg", "jpg"),
-    PNG("PNG (lossless)", "image/png", "png"),
-}
-
-/** Long-edge sizes for export; null = full resolution (limited by device memory). */
-val EXPORT_SIZES: List<Int?> = listOf(null, 4096, 2048, 1080)
 
 /** Hue centres (degrees) for the 8 HSL colour bands. */
 val HSL_NAMES = listOf("Red", "Orange", "Yellow", "Green", "Aqua", "Blue", "Purple", "Magenta")

@@ -92,17 +92,7 @@ private enum class StudioFilter(val label: String) { All("All"), Edited("Edited"
 fun StudioScreen(vm: EditorViewModel) {
     var filter by rememberSaveable { mutableStateOf(StudioFilter.All) }
     var showPaste by remember { mutableStateOf(false) }
-    val context = LocalContext.current
-    // Android 7–9 needs the storage permission to save into Pictures/.
-    val writeLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
-        if (ok) vm.exportSelection() else vm.message = "Storage permission is needed to save on this Android version"
-    }
-    fun exportSelected() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q &&
-            ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED
-        ) writeLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
-        else vm.exportSelection()
-    }
+    fun exportSelected() = vm.openBatchExport()
     val all = vm.studio
     val shown = when (filter) {
         StudioFilter.All -> all

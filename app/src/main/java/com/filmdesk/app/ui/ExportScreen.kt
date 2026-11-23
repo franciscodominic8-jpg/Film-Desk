@@ -5,11 +5,17 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
@@ -23,43 +29,67 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Share
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.filmdesk.app.engine.BitmapIO
-import com.filmdesk.app.model.EXPORT_SIZES
+import com.filmdesk.app.model.BUILT_IN_PRESETS
 import com.filmdesk.app.model.ExportFormat
+import com.filmdesk.app.model.ExportPreset
+import com.filmdesk.app.model.ExportSettings
 import com.filmdesk.app.model.FILM_SIMS
+import com.filmdesk.app.model.MetadataMode
+import com.filmdesk.app.model.SHARPEN_LEVELS
+import com.filmdesk.app.model.Sharpen
+import com.filmdesk.app.model.SizeMode
+import com.filmdesk.app.model.WATERMARK_COLORS
+import com.filmdesk.app.model.cleanFolder
+import com.filmdesk.app.model.formatBytes
 import com.filmdesk.app.ui.theme.FD
 import kotlin.math.roundToInt
 
-@OptIn(ExperimentalLayoutApi::class)
+/** Lightroom-style export: presets, file type, size, sharpening, metadata, folder, watermark. */
 @Composable
 fun ExportScreen(vm: EditorViewModel) {
     val context = LocalContext.current
     val s = vm.exportSettings
-    val maxEdge = remember { BitmapIO.maxExportLongEdge() }
+    val batch = vm.exportTargets.isNotEmpty()
+    fun set(f: (ExportSettings) -> ExportSettings) { vm.exportSettings = f(vm.exportSettings) }
+
+    LaunchedEffect(vm.preview, vm.fullLongEdge) { vm.scheduleEstimate() }
 
     // Android 7–9 needs the storage permission to write to Pictures/.
     val needsWritePermission = Build.VERSION.SDK_INT < Build.VERSION_CODES.Q
@@ -68,14 +98,14 @@ fun ExportScreen(vm: EditorViewModel) {
     }
     // Android 10+: reading GPS from the original needs ACCESS_MEDIA_LOCATION.
     val locationLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
-        vm.exportSettings = vm.exportSettings.copy(keepLocation = ok)
+        set { it.copy(keepLocation = ok) }
         if (!ok) vm.message = "Location permission denied — location won't be copied"
     }
     fun setKeepLocation(on: Boolean) {
         val needsPermission = on && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_MEDIA_LOCATION) != PackageManager.PERMISSION_GRANTED
         if (needsPermission) locationLauncher.launch(Manifest.permission.ACCESS_MEDIA_LOCATION)
-        else vm.exportSettings = vm.exportSettings.copy(keepLocation = on)
+        else set { it.copy(keepLocation = on) }
     }
     fun save() {
         if (needsWritePermission &&
@@ -84,12 +114,19 @@ fun ExportScreen(vm: EditorViewModel) {
         else vm.export(share = false)
     }
 
+    var savePreset by remember { mutableStateOf(false) }
+    var deletePreset by remember { mutableStateOf<ExportPreset?>(null) }
+
     Column(Modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth().padding(start = 4.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 16.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = { vm.back() }) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = FD.Text)
             }
-            Text("Export", color = FD.Text, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Text("Export", color = FD.Text, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            Text(
+                if (batch) "${vm.exportTargets.size} photos" else "1 photo",
+                color = if (batch) FD.Amber else FD.Muted, fontSize = 12.sp, fontFamily = FD.Mono,
+            )
         }
 
         Column(
@@ -97,101 +134,491 @@ fun ExportScreen(vm: EditorViewModel) {
                 .weight(1f)
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(18.dp),
+                .padding(horizontal = 14.dp, vertical = 6.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(width = 120.dp, height = 90.dp).clip(RoundedCornerShape(6.dp)).background(FD.Surface)) {
-                    val thumb = if (vm.tab == EditorTab.Crop) vm.currentId?.let { vm.studioThumbs[it] } ?: vm.preview else vm.preview
-                    thumb?.let { b ->
-                        val img = remember(b) { b.asImageBitmap() }
-                        Image(img, contentDescription = "Edited photo", modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-                    }
-                }
-                Spacer(Modifier.width(14.dp))
-                Column {
-                    Text(FILM_SIMS[vm.params.sim].name, color = FD.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                    Text("Full-resolution render on save", color = FD.Muted, fontSize = 12.sp)
-                }
-            }
+            val mod = Modifier.fillMaxWidth().widthIn(max = 720.dp)
+            if (batch) BatchSummary(vm, mod) else Summary(vm, s, mod)
+            Presets(vm, s, mod, onSave = { savePreset = true }, onDelete = { deletePreset = it })
 
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                SectionLabel("Format")
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ExportFormat.entries.forEach { f ->
-                        Pill(f.label, selected = s.format == f, onClick = { vm.exportSettings = s.copy(format = f) })
-                    }
+            Section("File type", mod) {
+                val formats = ExportFormat.entries.filter { it != ExportFormat.HEIF || Build.VERSION.SDK_INT >= Build.VERSION_CODES.P }
+                Segmented(formats.map { it.label }, formats.indexOf(s.format)) { i -> set { it.copy(format = formats[i]) } }
+                if (s.format == ExportFormat.WEBP) {
+                    SwitchLine("Lossless", "Bigger file, no quality loss", s.webpLossless) { on -> set { it.copy(webpLossless = on) } }
                 }
-            }
-
-            if (s.format == ExportFormat.JPEG) {
-                LabeledSlider(
-                    label = "Quality",
-                    value = s.quality.toFloat(),
-                    range = 60f..100f,
-                    display = s.quality.toString(),
-                    changed = true,
-                    onChange = { vm.exportSettings = vm.exportSettings.copy(quality = it.roundToInt()) },
-                    onDone = {},
-                )
-            }
-
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                SectionLabel("Size (long edge)")
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    EXPORT_SIZES.forEachIndexed { i, edge ->
-                        val label = if (edge == null) "Full (up to ${maxEdge}px)" else "${edge}px"
-                        Pill(label, selected = s.size == i, onClick = { vm.exportSettings = s.copy(size = i) })
+                if (s.format == ExportFormat.PNG) Note("PNG is always lossless.")
+                if (s.format == ExportFormat.HEIF) Note("Smaller files at the same quality. Metadata isn't kept in HEIF.")
+                if (s.lossy) {
+                    LabeledSlider(
+                        label = "Quality", value = s.quality.toFloat(), range = 10f..100f, display = s.quality.toString(),
+                        changed = true, onChange = { v -> set { it.copy(quality = v.roundToInt()) } }, onDone = {},
+                    )
+                }
+                if (s.canLimitSize) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Limit file size", color = FD.Text, fontSize = 14.sp)
+                            Text("Highest quality that fits", color = FD.Muted, fontSize = 12.sp)
+                        }
+                        NumberField(
+                            value = s.limitMb.let { if (it == it.roundToInt().toFloat()) it.roundToInt().toString() else it.toString() },
+                            suffix = "MB", width = 96, decimal = true, enabled = s.limitSize,
+                        ) { txt -> txt.toFloatOrNull()?.let { v -> set { it.copy(limitMb = v.coerceIn(0.1f, 100f)) } } }
+                        Spacer(Modifier.width(8.dp))
+                        FdSwitch(s.limitSize) { on -> set { it.copy(limitSize = on) } }
                     }
                 }
             }
 
-            FdCard(Modifier.fillMaxWidth().widthIn(max = 720.dp)) {
-                ToggleRow(
-                    "Embed recipe in metadata", "Re-import the exact look later (JPEG only)",
-                    s.embedRecipe && s.format == ExportFormat.JPEG,
-                    { vm.exportSettings = vm.exportSettings.copy(embedRecipe = it) },
-                    enabled = s.format == ExportFormat.JPEG,
-                )
-                HorizontalDivider(color = FD.Line)
-                ToggleRow(
-                    "Keep location", "Copy GPS from the original photo (camera info is always kept, JPEG only)",
-                    s.keepLocation && s.format == ExportFormat.JPEG,
-                    { setKeepLocation(it) },
-                    enabled = s.format == ExportFormat.JPEG,
-                )
+            Section("Size", mod) {
+                ChipRow(SizeMode.entries.map { it.label }, SizeMode.entries.indexOf(s.sizeMode)) { i -> set { it.copy(sizeMode = SizeMode.entries[i]) } }
+                if (s.sizeMode != SizeMode.Full) {
+                    val (value, suffix, quick) = when (s.sizeMode) {
+                        SizeMode.LongEdge -> Triple(s.longEdge, "px", listOf(1080, 2048, 4096))
+                        SizeMode.ShortEdge -> Triple(s.shortEdge, "px", listOf(1080, 2048, 4096))
+                        SizeMode.Megapixels -> Triple(s.megapixels, "MP", listOf(8, 12, 24))
+                        else -> Triple(s.percent, "%", listOf(25, 50, 75))
+                    }
+                    fun setValue(v: Int) = set {
+                        when (it.sizeMode) {
+                            SizeMode.LongEdge -> it.copy(longEdge = v.coerceIn(64, 16000))
+                            SizeMode.ShortEdge -> it.copy(shortEdge = v.coerceIn(64, 16000))
+                            SizeMode.Megapixels -> it.copy(megapixels = v.coerceIn(1, 200))
+                            else -> it.copy(percent = v.coerceIn(1, 100))
+                        }
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        NumberField(value.toString(), suffix, width = 120, key = s.sizeMode.name) { txt -> txt.toIntOrNull()?.let(::setValue) }
+                        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            quick.forEach { q -> Pill(q.toString(), selected = value == q, onClick = { setValue(q) }) }
+                        }
+                    }
+                }
+                if (!batch) {
+                    val sizes = vm.fullSizes()
+                    val out = vm.exportSize()
+                    if (sizes != null && out != null) {
+                        Text(
+                            "Output ${out.first} × ${out.second} · from ${sizes.first.first} × ${sizes.first.second}",
+                            color = FD.Muted, fontSize = 11.sp, fontFamily = FD.Mono,
+                        )
+                    }
+                } else {
+                    Note("Each photo is sized from its own crop. Photos are never made larger.")
+                }
             }
-            Spacer(Modifier.height(8.dp))
+
+            Section("Output sharpening", mod) {
+                Segmented(Sharpen.entries.map { it.label }, Sharpen.entries.indexOf(s.sharpen)) { i -> set { it.copy(sharpen = Sharpen.entries[i]) } }
+                if (s.sharpen != Sharpen.Off) {
+                    Segmented(SHARPEN_LEVELS, s.sharpenLevel) { i -> set { it.copy(sharpenLevel = i) } }
+                    Note(
+                        when (s.sharpen) {
+                            Sharpen.Screen -> "For phones, computers and social media."
+                            Sharpen.Matte -> "For prints on matte paper."
+                            else -> "For prints on glossy paper."
+                        }
+                    )
+                }
+            }
+
+            Section("Metadata", mod) {
+                if (!s.canWriteMetadata) {
+                    Note("HEIF files are saved without metadata.")
+                } else {
+                    Segmented(MetadataMode.entries.map { it.label }, MetadataMode.entries.indexOf(s.metadata)) { i ->
+                        set { it.copy(metadata = MetadataMode.entries[i]) }
+                    }
+                    if (s.metadata == MetadataMode.All) {
+                        SwitchLine("Camera info", "Camera, lens, ISO, shutter, date", s.cameraInfo) { on -> set { it.copy(cameraInfo = on) } }
+                        SwitchLine("Location", "GPS from the original", s.keepLocation, ::setKeepLocation)
+                        SwitchLine("Embed recipe", "Re-import the look later", s.embedRecipe) { on -> set { it.copy(embedRecipe = on) } }
+                    }
+                    if (s.metadata != MetadataMode.None) {
+                        TextLine("Copyright / author", s.copyright, "© Your Name") { t -> set { it.copy(copyright = t.take(120)) } }
+                    } else {
+                        Note("No camera details, location or copyright are saved in the file.")
+                    }
+                }
+            }
+
+            Section("Save to", mod) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Pictures/FilmDesk/", color = FD.Muted, fontSize = 14.sp)
+                    OutlinedTextField(
+                        value = s.folder,
+                        onValueChange = { t -> set { it.copy(folder = cleanFolder(t)) } },
+                        singleLine = true,
+                        placeholder = { Text("(no subfolder)", color = FD.Line) },
+                        colors = fieldColors(),
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+
+            Section("Watermark", mod) {
+                SwitchLine("Watermark", "Your name or © on the photo", s.watermark) { on -> set { it.copy(watermark = on) } }
+                if (s.watermark) {
+                    WatermarkPreview(vm, s)
+                    TextLine("Text", s.wmText, "© Your Name") { t -> set { it.copy(wmText = t.take(80)) } }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Position", color = FD.Text, fontSize = 14.sp)
+                            Text(POSITIONS[s.wmPos], color = FD.Muted, fontSize = 12.sp)
+                        }
+                        PositionGrid(s.wmPos) { i -> set { it.copy(wmPos = i) } }
+                    }
+                    LabeledSlider(
+                        label = "Size", value = s.wmSize.toFloat(), range = 2f..12f, steps = 9, display = "${s.wmSize}%",
+                        changed = true, onChange = { v -> set { it.copy(wmSize = v.roundToInt()) } }, onDone = {},
+                    )
+                    LabeledSlider(
+                        label = "Opacity", value = s.wmOpacity.toFloat(), range = 10f..100f, display = "${s.wmOpacity}%",
+                        changed = true, onChange = { v -> set { it.copy(wmOpacity = v.roundToInt()) } }, onDone = {},
+                    )
+                    ChipRow(WATERMARK_COLORS, s.wmColor) { i -> set { it.copy(wmColor = i) } }
+                }
+            }
+            Spacer(Modifier.height(4.dp))
         }
 
+        // Share / Save
         Row(
-            Modifier.fillMaxWidth().background(FD.Panel).padding(16.dp),
+            Modifier.fillMaxWidth().background(FD.Panel).padding(horizontal = 16.dp, vertical = 10.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            OutlinedButton(
-                onClick = { vm.export(share = true) },
-                enabled = !vm.exporting,
-                modifier = Modifier.weight(1f).height(52.dp),
-            ) {
-                Icon(Icons.Filled.Share, contentDescription = null, tint = FD.Text)
-                Spacer(Modifier.width(8.dp))
-                Text("Share", color = FD.Text)
+            if (!batch) {
+                OutlinedButton(
+                    onClick = { vm.export(share = true) }, enabled = !vm.exporting,
+                    modifier = Modifier.weight(1f).height(48.dp),
+                ) { Text("Share", color = FD.Text) }
             }
             Button(
-                onClick = { save() },
-                enabled = !vm.exporting,
+                onClick = ::save, enabled = !vm.exporting,
                 colors = ButtonDefaults.buttonColors(containerColor = FD.Amber, contentColor = FD.OnAmber),
-                modifier = Modifier.weight(1.4f).height(52.dp),
+                modifier = Modifier.weight(2f).height(48.dp),
             ) {
                 if (vm.exporting) {
                     CircularProgressIndicator(color = FD.OnAmber, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(10.dp))
-                    Text("Rendering…", fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.width(8.dp))
+                    Text(vm.batchProgress ?: "Exporting…", fontWeight = FontWeight.SemiBold)
                 } else {
-                    Text("Save to gallery", fontWeight = FontWeight.SemiBold)
+                    Text(
+                        (if (batch) "Save ${vm.exportTargets.size} to " else "Save to ") + "Pictures/${s.folderPath}",
+                        fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    )
                 }
             }
+        }
+    }
+
+    if (savePreset) {
+        var name by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { savePreset = false },
+            title = { Text("Save preset") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(
+                        value = name, onValueChange = { name = it.take(40) }, singleLine = true,
+                        label = { Text("Preset name") }, placeholder = { Text("e.g. Client") }, colors = fieldColors(),
+                    )
+                    Text(presetSummary(s), color = FD.Muted, fontSize = 11.sp, fontFamily = FD.Mono, lineHeight = 16.sp)
+                }
+            },
+            confirmButton = { TextButton(onClick = { vm.saveExportPreset(name); savePreset = false }) { Text("Save preset", color = FD.Amber) } },
+            dismissButton = { TextButton(onClick = { savePreset = false }) { Text("Cancel", color = FD.Muted) } },
+            containerColor = FD.Surface,
+        )
+    }
+    deletePreset?.let { p ->
+        AlertDialog(
+            onDismissRequest = { deletePreset = null },
+            title = { Text("Delete preset “${p.name}”?") },
+            confirmButton = { TextButton(onClick = { vm.deleteExportPreset(p); deletePreset = null }) { Text("Delete", color = FD.Amber) } },
+            dismissButton = { TextButton(onClick = { deletePreset = null }) { Text("Cancel", color = FD.Muted) } },
+            containerColor = FD.Surface,
+        )
+    }
+}
+
+private val POSITIONS = listOf(
+    "Top left", "Top centre", "Top right", "Middle left", "Centre", "Middle right", "Bottom left", "Bottom centre", "Bottom right",
+)
+
+private fun presetSummary(s: ExportSettings): String = buildString {
+    append(s.format.label)
+    if (s.lossy) append(" ").append(s.quality)
+    append(" · ").append(
+        when (s.sizeMode) {
+            SizeMode.Full -> "Full size"
+            SizeMode.LongEdge -> "Long edge ${s.longEdge} px"
+            SizeMode.ShortEdge -> "Short edge ${s.shortEdge} px"
+            SizeMode.Megapixels -> "${s.megapixels} MP"
+            SizeMode.Percent -> "${s.percent}%"
+        }
+    )
+    if (s.sharpen != Sharpen.Off) append(" · Sharpen ").append(s.sharpen.label).append("/").append(SHARPEN_LEVELS[s.sharpenLevel])
+    append("\nMetadata: ").append(s.metadata.label)
+    if (s.watermark) append(" · Watermark on")
+    append("\nFolder: Pictures/").append(s.folderPath)
+}
+
+@Composable
+private fun Summary(vm: EditorViewModel, s: ExportSettings, modifier: Modifier) {
+    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(width = 104.dp, height = 70.dp).clip(RoundedCornerShape(8.dp)).background(FD.Surface)) {
+            // In the Crop tab the preview is the uncropped photo, so use the saved Studio thumbnail.
+            val thumb = if (vm.tab == EditorTab.Crop) vm.currentId?.let { vm.studioThumbs[it] } ?: vm.preview else vm.preview
+            thumb?.let { b ->
+                val img = remember(b) { b.asImageBitmap() }
+                Image(img, contentDescription = "Edited photo", modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            }
+        }
+        Spacer(Modifier.width(12.dp))
+        Column {
+            Text(FILM_SIMS[vm.params.sim].name, color = FD.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+            val out = vm.exportSize(s)
+            val fmt = s.format.label + if (s.lossy) " ${s.quality}" else ""
+            Text(
+                (out?.let { "${it.first} × ${it.second} · " } ?: "") + fmt,
+                color = FD.Muted, fontSize = 11.sp, fontFamily = FD.Mono,
+            )
+            Text(vm.exportEstimate?.let { "≈ ${formatBytes(it)}" } ?: "Estimating size…", color = FD.Amber, fontSize = 12.sp)
+        }
+    }
+}
+
+@Composable
+private fun BatchSummary(vm: EditorViewModel, modifier: Modifier) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+            vm.exportTargets.take(5).forEach { id ->
+                LaunchedEffect(id) { vm.ensureThumb(id) }
+                Box(Modifier.size(58.dp).clip(RoundedCornerShape(8.dp)).background(FD.Surface)) {
+                    vm.studioThumbs[id]?.let { b ->
+                        val img = remember(b) { b.asImageBitmap() }
+                        Image(img, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                    }
+                }
+            }
+            if (vm.exportTargets.size > 5) Text("+${vm.exportTargets.size - 5}", color = FD.Muted, fontSize = 12.sp, fontFamily = FD.Mono)
+        }
+        Text("Each photo keeps its own edits", color = FD.Muted, fontSize = 11.sp, fontFamily = FD.Mono)
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun Presets(vm: EditorViewModel, s: ExportSettings, modifier: Modifier, onSave: () -> Unit, onDelete: (ExportPreset) -> Unit) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            SectionLabel("Presets", Modifier.weight(1f))
+            Text(
+                "+ Save current", color = FD.Amber, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.clip(RoundedCornerShape(6.dp)).clickable(onClick = onSave).padding(6.dp),
+            )
+        }
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            (BUILT_IN_PRESETS + vm.exportPresets).forEach { p ->
+                val on = p.matches(s)
+                Column(
+                    Modifier
+                        .width(104.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(if (on) FD.AmberDim else FD.Surface)
+                        .border(if (on) 2.dp else 1.dp, if (on) FD.Amber else FD.Line, RoundedCornerShape(12.dp))
+                        .combinedClickable(
+                            onClickLabel = "Use ${p.name}",
+                            onLongClickLabel = if (p.builtIn) null else "Delete ${p.name}",
+                            onClick = { vm.applyExportPreset(p) },
+                            onLongClick = if (p.builtIn) null else ({ onDelete(p) }),
+                        )
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                ) {
+                    Text(p.name, color = FD.Text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(
+                        p.detail.ifEmpty { "My preset" }, color = FD.Muted, fontSize = 10.5.sp, maxLines = 1,
+                    )
+                }
+            }
+        }
+        if (vm.exportPresets.isNotEmpty()) Text("Long-press your own preset to delete it.", color = FD.Muted, fontSize = 11.sp)
+    }
+}
+
+// ------------------------------------------------------------------ small building blocks
+
+@Composable
+private fun Section(title: String, modifier: Modifier, content: @Composable ColumnScope.() -> Unit) {
+    Column(
+        modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(FD.Surface)
+            .border(1.dp, FD.Line, RoundedCornerShape(16.dp))
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        SectionLabel(title)
+        content()
+    }
+}
+
+@Composable
+private fun Segmented(options: List<String>, selected: Int, onSelect: (Int) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(FD.Surface2).padding(3.dp),
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        options.forEachIndexed { i, label ->
+            val on = i == selected
+            Box(
+                Modifier
+                    .weight(1f)
+                    .height(36.dp)
+                    .clip(RoundedCornerShape(9.dp))
+                    .background(if (on) FD.Amber else Color.Transparent)
+                    .clickable(onClickLabel = label) { onSelect(i) },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    label, color = if (on) FD.OnAmber else Color(0xFFC9C8C3), fontSize = 13.sp,
+                    fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1,
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ChipRow(options: List<String>, selected: Int, onSelect: (Int) -> Unit) {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        options.forEachIndexed { i, label -> Pill(label, selected = i == selected, onClick = { onSelect(i) }) }
+    }
+}
+
+@Composable
+private fun SwitchLine(title: String, subtitle: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(title, color = FD.Text, fontSize = 14.sp)
+            Text(subtitle, color = FD.Muted, fontSize = 12.sp)
+        }
+        FdSwitch(checked, onChange)
+    }
+}
+
+@Composable
+private fun FdSwitch(checked: Boolean, onChange: (Boolean) -> Unit) {
+    androidx.compose.material3.Switch(
+        checked = checked, onCheckedChange = onChange,
+        colors = androidx.compose.material3.SwitchDefaults.colors(
+            checkedThumbColor = FD.OnAmber, checkedTrackColor = FD.Amber,
+            uncheckedThumbColor = FD.Muted, uncheckedTrackColor = FD.Surface2, uncheckedBorderColor = FD.Line,
+        ),
+    )
+}
+
+@Composable
+private fun Note(text: String) = Text(text, color = FD.Muted, fontSize = 12.sp)
+
+@Composable
+private fun fieldColors() = OutlinedTextFieldDefaults.colors(
+    focusedTextColor = FD.Text, unfocusedTextColor = FD.Text, disabledTextColor = FD.Muted,
+    focusedBorderColor = FD.Amber, unfocusedBorderColor = FD.Line, disabledBorderColor = FD.Line,
+    cursorColor = FD.Amber, focusedLabelColor = FD.Amber, unfocusedLabelColor = FD.Muted,
+    focusedContainerColor = FD.Panel, unfocusedContainerColor = FD.Panel, disabledContainerColor = FD.Panel,
+)
+
+@Composable
+private fun TextLine(label: String, value: String, placeholder: String, onChange: (String) -> Unit) {
+    OutlinedTextField(
+        value = value, onValueChange = onChange, singleLine = true,
+        label = { Text(label) }, placeholder = { Text(placeholder, color = FD.Line) },
+        colors = fieldColors(), modifier = Modifier.fillMaxWidth(),
+    )
+}
+
+/** A number box that keeps what's being typed and reports valid numbers. */
+@Composable
+private fun NumberField(
+    value: String, suffix: String, width: Int, decimal: Boolean = false, enabled: Boolean = true, key: String = "",
+    onValue: (String) -> Unit,
+) {
+    var text by remember(key, value) { mutableStateOf(value) }
+    OutlinedTextField(
+        value = text,
+        onValueChange = { t ->
+            val clean = t.filter { it.isDigit() || (decimal && it == '.') }.take(6)
+            text = clean
+            if (clean.isNotEmpty()) onValue(clean)
+        },
+        enabled = enabled,
+        singleLine = true,
+        suffix = { Text(suffix, color = FD.Muted) },
+        keyboardOptions = KeyboardOptions(keyboardType = if (decimal) KeyboardType.Decimal else KeyboardType.Number),
+        colors = fieldColors(),
+        modifier = Modifier.width(width.dp),
+    )
+}
+
+@Composable
+private fun PositionGrid(selected: Int, onSelect: (Int) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        for (r in 0 until 3) Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            for (c in 0 until 3) {
+                val i = r * 3 + c
+                Box(
+                    Modifier
+                        .size(30.dp, 24.dp)
+                        .clip(RoundedCornerShape(5.dp))
+                        .background(if (i == selected) FD.Amber else FD.Surface2)
+                        .border(1.dp, FD.Line, RoundedCornerShape(5.dp))
+                        .clickable(onClickLabel = POSITIONS[i]) { onSelect(i) }
+                )
+            }
+        }
+    }
+}
+
+/** Approximate live preview of the watermark on the photo. */
+@Composable
+private fun WatermarkPreview(vm: EditorViewModel, s: ExportSettings) {
+    val b = (if (vm.exportTargets.isNotEmpty()) vm.exportTargets.firstOrNull()?.let { vm.studioThumbs[it] }
+    else if (vm.tab == EditorTab.Crop) vm.currentId?.let { vm.studioThumbs[it] } else vm.preview) ?: return
+    val img = remember(b) { b.asImageBitmap() }
+    androidx.compose.foundation.layout.BoxWithConstraints(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+            .then(Modifier.height(220.dp)),
+        contentAlignment = Alignment.Center,
+    ) {
+        val ratio = b.width / b.height.toFloat()
+        val w = if (maxWidth / maxHeight > ratio) maxHeight * ratio else maxWidth
+        val h = w / ratio
+        Box(Modifier.size(w, h)) {
+            Image(img, contentDescription = "Watermark preview", modifier = Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
+            val short = if (w < h) w else h
+            val color = when (s.wmColor) { 1 -> Color.Black; 2 -> FD.Amber; else -> Color.White }.copy(alpha = s.wmOpacity / 100f)
+            val align = when (s.wmPos) {
+                0 -> Alignment.TopStart; 1 -> Alignment.TopCenter; 2 -> Alignment.TopEnd
+                3 -> Alignment.CenterStart; 4 -> Alignment.Center; 5 -> Alignment.CenterEnd
+                6 -> Alignment.BottomStart; 7 -> Alignment.BottomCenter; else -> Alignment.BottomEnd
+            }
+            val density = androidx.compose.ui.platform.LocalDensity.current
+            val fontSize = with(density) { (short * s.wmSize / 100f).toSp() }
+            Text(
+                s.wmText.ifBlank { "© Your Name" },
+                style = TextStyle(
+                    color = color, fontSize = fontSize,
+                    shadow = if (s.wmColor != 1) Shadow(Color(0x66000000), blurRadius = 4f) else null,
+                ),
+                maxLines = 1,
+                modifier = Modifier.align(align).padding(short * 0.035f),
+            )
         }
     }
 }
