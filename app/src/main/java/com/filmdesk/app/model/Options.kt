@@ -34,7 +34,8 @@ val ASPECTS = listOf(
     Aspect("2:3", 2f / 3f),
     Aspect("16:9", 16f / 9f),
     Aspect("9:16", 9f / 16f),
-    Aspect("65:24 pano", 65f / 24f),
+    Aspect("65:24", 65f / 24f),
+    Aspect("Free", -1f),
 )
 
 enum class ExportFormat(val label: String, val mime: String, val ext: String) {

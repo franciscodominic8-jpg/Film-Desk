@@ -61,14 +61,27 @@ data class EditParams(
     val softLS: Int = 0,
     val softHS: Int = 0,
     // ---- Geometry ----
-    val aspect: Int = 0,
+    /** Crop ratio lock: index into ASPECTS (ASPECT_FREE = no lock). */
+    val aspect: Int = ASPECT_FREE,
+    /** Ratio turned the other way (3:2 → 2:3). */
+    val aspectFlip: Boolean = false,
     val rotation: Int = 0,
     val flipH: Boolean = false,
+    /** Fine rotation in degrees, −45..45; the photo zooms in so no corners are blank. */
+    val straighten: Float = 0f,
+    /** Crop rectangle as fractions of the rotated/straightened photo. */
+    val cropL: Float = 0f,
+    val cropT: Float = 0f,
+    val cropR: Float = 1f,
+    val cropB: Float = 1f,
 ) {
     /** Same look with this photo's crop/rotation kept (used when applying a recipe). */
-    fun withGeometryOf(other: EditParams) = copy(aspect = other.aspect, rotation = other.rotation, flipH = other.flipH)
+    fun withGeometryOf(other: EditParams) = copy(
+        aspect = other.aspect, aspectFlip = other.aspectFlip, rotation = other.rotation, flipH = other.flipH,
+        straighten = other.straighten, cropL = other.cropL, cropT = other.cropT, cropR = other.cropR, cropB = other.cropB,
+    )
 
-    fun withoutGeometry() = copy(aspect = 0, rotation = 0, flipH = false)
+    fun withoutGeometry() = withGeometryOf(EditParams())
 
     /** Resets only the Fujifilm Q-menu settings. */
     fun resetCamera() = EditParams().copy(
@@ -78,8 +91,7 @@ data class EditParams(
         curveY = curveY, curveR = curveR, curveG = curveG, curveB = curveB,
         curveLinked = curveLinked, curveMix = curveMix,
         softLow = softLow, softHigh = softHigh, softLS = softLS, softHS = softHS,
-        aspect = aspect, rotation = rotation, flipH = flipH,
-    )
+    ).withGeometryOf(this)
 
     /** Resets only the Pro adjustments. */
     fun resetPro() = copy(
@@ -107,7 +119,9 @@ data class EditParams(
         put("curveG", curveJson(curveG)); put("curveB", curveJson(curveB))
         put("curveLinked", curveLinked); put("curveMix", JSONArray(curveMix))
         put("softLow", softLow); put("softHigh", softHigh); put("softLS", softLS); put("softHS", softHS)
-        put("aspect", aspect); put("rotation", rotation); put("flipH", flipH)
+        put("aspect", aspect); put("aspectFlip", aspectFlip); put("rotation", rotation); put("flipH", flipH)
+        put("straighten", straighten.toDouble())
+        put("cropL", cropL.toDouble()); put("cropT", cropT.toDouble()); put("cropR", cropR.toDouble()); put("cropB", cropB.toDouble())
     }
 
     companion object {
@@ -162,7 +176,12 @@ data class EditParams(
                 curveMix = o.optJSONArray("curveMix")?.let { a -> List(4) { idx -> a.optInt(idx, 100).coerceIn(0, 100) } } ?: FULL_MIX,
                 softLow = i("softLow", 0, 100, 0), softHigh = i("softHigh", 0, 100, 100),
                 softLS = i("softLS", 0, 100, 0), softHS = i("softHS", 0, 100, 0),
-                aspect = i("aspect", 0, ASPECTS.lastIndex),
+                // Before free crop, aspect 0 ("Original") meant no crop: now that is Free.
+                aspect = if (!o.has("cropL") && o.optInt("aspect", 0) == 0) ASPECT_FREE else i("aspect", 0, ASPECTS.lastIndex, ASPECT_FREE),
+                aspectFlip = o.optBoolean("aspectFlip", false),
+                straighten = f("straighten", -45f, 45f),
+                cropL = f("cropL", 0f, 0.99f), cropT = f("cropT", 0f, 0.99f),
+                cropR = f("cropR", 0.01f, 1f, 1f), cropB = f("cropB", 0.01f, 1f, 1f),
                 rotation = (o.optInt("rotation", 0) / 90 * 90).let { ((it % 360) + 360) % 360 },
                 flipH = o.optBoolean("flipH", false),
             )

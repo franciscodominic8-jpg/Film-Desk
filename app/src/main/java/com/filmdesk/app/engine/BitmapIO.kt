@@ -27,6 +27,17 @@ import kotlin.math.sqrt
 
 object BitmapIO {
 
+    /** Long edge of the full-size photo in pixels (0 if unreadable). */
+    fun longEdge(context: Context, uri: Uri): Int {
+        val o = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        return try {
+            context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, o) }
+            max(o.outWidth, o.outHeight).coerceAtLeast(0)
+        } catch (e: Exception) {
+            0
+        }
+    }
+
     /** Decodes [uri] so that its long edge is at most [maxLongEdge], honouring EXIF rotation. */
     fun decode(context: Context, uri: Uri, maxLongEdge: Int): Bitmap? {
         val cr = context.contentResolver

@@ -95,7 +95,8 @@ fun EditorScreen(vm: EditorViewModel) {
             Row(Modifier.fillMaxSize()) {
                 Column(Modifier.weight(1f).fillMaxHeight()) {
                     EditorTopBar(vm)
-                    PreviewArea(vm, Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp))
+                    if (vm.tab == EditorTab.Crop) CropView(vm, Modifier.weight(1f).fillMaxWidth())
+                    else PreviewArea(vm, Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp))
                     EditorTabs(vm)
                 }
                 Box(
@@ -109,7 +110,8 @@ fun EditorScreen(vm: EditorViewModel) {
             val panelHeight = minOf(maxHeight * 0.42f, 360.dp)
             Column(Modifier.fillMaxSize()) {
                 EditorTopBar(vm)
-                PreviewArea(vm, Modifier.weight(1f).fillMaxWidth())
+                if (vm.tab == EditorTab.Crop) CropView(vm, Modifier.weight(1f).fillMaxWidth())
+                else PreviewArea(vm, Modifier.weight(1f).fillMaxWidth())
                 ToolPanel(vm, Modifier.fillMaxWidth().height(panelHeight))
                 EditorTabs(vm)
             }
@@ -257,7 +259,7 @@ internal fun PreviewArea(vm: EditorViewModel, modifier: Modifier) {
 }
 
 @Composable
-private fun Badge(text: String, modifier: Modifier) {
+internal fun Badge(text: String, modifier: Modifier) {
     Text(
         text,
         modifier = modifier
@@ -312,7 +314,7 @@ private fun ToolPanel(vm: EditorViewModel, modifier: Modifier) {
             EditorTab.Film -> FilmPanel(vm)
             EditorTab.QMenu -> QMenuPanel(vm)
             EditorTab.Pro -> ProPanel(vm)
-            EditorTab.Crop -> CropPanel(vm)
+            EditorTab.Crop -> CropTools(vm)
         }
     }
 }
@@ -387,31 +389,3 @@ private fun SimChip(sim: FilmSim, thumb: Bitmap?, selected: Boolean, onClick: ()
 // ------------------------------------------------------------------ Crop tab
 
 @OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun CropPanel(vm: EditorViewModel) {
-    val p = vm.params
-    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        SectionLabel("Aspect ratio")
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            ASPECTS.forEachIndexed { i, a ->
-                Pill(a.label, selected = p.aspect == i, onClick = { vm.change(vm.params.copy(aspect = i)) })
-            }
-        }
-        SectionLabel("Rotate & flip")
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = { vm.change(vm.params.copy(rotation = (vm.params.rotation + 270) % 360)) }) {
-                Icon(Icons.Filled.RotateLeft, contentDescription = null, tint = FD.Text)
-                Spacer(Modifier.width(6.dp)); Text("Left", color = FD.Text)
-            }
-            OutlinedButton(onClick = { vm.change(vm.params.copy(rotation = (vm.params.rotation + 90) % 360)) }) {
-                Icon(Icons.Filled.RotateRight, contentDescription = null, tint = FD.Text)
-                Spacer(Modifier.width(6.dp)); Text("Right", color = FD.Text)
-            }
-            OutlinedButton(onClick = { vm.change(vm.params.copy(flipH = !vm.params.flipH)) }) {
-                Icon(Icons.Filled.Flip, contentDescription = null, tint = if (p.flipH) FD.Amber else FD.Text)
-                Spacer(Modifier.width(6.dp)); Text("Flip", color = FD.Text)
-            }
-        }
-        Text("Crops are centred. Free-form crop handles are planned for the next version.", color = FD.Muted, fontSize = 12.sp)
-    }
-}

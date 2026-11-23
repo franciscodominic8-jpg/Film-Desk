@@ -1,8 +1,11 @@
 package com.filmdesk.app.engine
 
 import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.Matrix
-import com.filmdesk.app.model.ASPECTS
+import android.graphics.Paint
+import com.filmdesk.app.model.cropRect
+import com.filmdesk.app.model.straightenScale
 import com.filmdesk.app.model.EditParams
 import com.filmdesk.app.model.FILM_SIMS
 import com.filmdesk.app.model.WB_PRESETS
@@ -80,6 +83,7 @@ object ImageEngine {
         )
     }
 
+    /** 90° turns and flip, then straighten (zoomed to fill) and crop. */
     fun applyGeometry(src: Bitmap, p: EditParams): Bitmap {
         var bmp = src
         if (p.rotation != 0 || p.flipH) {
@@ -88,18 +92,30 @@ object ImageEngine {
             if (p.rotation != 0) m.postRotate(p.rotation.toFloat())
             bmp = Bitmap.createBitmap(src, 0, 0, src.width, src.height, m, true)
         }
-        val ratio = ASPECTS[p.aspect.coerceIn(0, ASPECTS.lastIndex)].ratio
-        if (ratio > 0f) {
-            val w = bmp.width
-            val h = bmp.height
-            var cw = w
-            var ch = h
-            if (w.toFloat() / h > ratio) cw = (h * ratio).roundToInt() else ch = (w / ratio).roundToInt()
-            cw = cw.coerceIn(1, w)
-            ch = ch.coerceIn(1, h)
-            if (cw != w || ch != h) bmp = Bitmap.createBitmap(bmp, (w - cw) / 2, (h - ch) / 2, cw, ch)
+        val w = bmp.width
+        val h = bmp.height
+        val r = p.cropRect(w, h)
+        val x0 = (r[0] * w).roundToInt().coerceIn(0, w - 1)
+        val y0 = (r[1] * h).roundToInt().coerceIn(0, h - 1)
+        val x1 = (r[2] * w).roundToInt().coerceIn(x0 + 1, w)
+        val y1 = (r[3] * h).roundToInt().coerceIn(y0 + 1, h)
+        val cw = x1 - x0
+        val ch = y1 - y0
+        val angle = p.straighten
+        if (abs(angle) < 0.01f) {
+            return if (cw == w && ch == h) bmp else Bitmap.createBitmap(bmp, x0, y0, cw, ch)
         }
-        return bmp
+        // Turn about the centre, zoomed so the frame has no blank corners, then cut out the crop.
+        val s = straightenScale(angle, w, h)
+        val m = Matrix().apply {
+            postTranslate(-w / 2f, -h / 2f)
+            postRotate(angle)
+            postScale(s, s)
+            postTranslate(w / 2f - x0, h / 2f - y0)
+        }
+        val out = Bitmap.createBitmap(cw, ch, Bitmap.Config.ARGB_8888)
+        Canvas(out).drawBitmap(bmp, m, Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG))
+        return out
     }
 
     /**
@@ -120,8 +136,8 @@ object ImageEngine {
             softLow = 0, softHigh = 100, softLS = 0,
             saturation = 0, vibrance = 0, color = 0, colorChrome = 0, colorChromeBlue = 0,
             hslHue = List(8) { 0 }, hslSat = List(8) { 0 }, hslLum = List(8) { 0 },
-            fade = 0, vignette = 0, grain = 0, aspect = 0, rotation = 0, flipH = false,
-        )
+            fade = 0, vignette = 0, grain = 0,
+        ).withoutGeometry()
         val out = render(crop, pre, stats, detail = false)
         val px = IntArray(out.width * out.height)
         out.getPixels(px, 0, out.width, 0, 0, out.width, out.height)

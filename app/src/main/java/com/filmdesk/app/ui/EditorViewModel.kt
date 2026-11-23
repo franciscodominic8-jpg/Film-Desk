@@ -8,6 +8,7 @@ import android.net.Uri
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
@@ -23,7 +24,17 @@ import com.filmdesk.app.model.EXPORT_SIZES
 import com.filmdesk.app.model.EditParams
 import com.filmdesk.app.model.ExportFormat
 import com.filmdesk.app.model.FILM_SIMS
+import com.filmdesk.app.model.ASPECT_FREE
+import com.filmdesk.app.model.ASPECT_ORIGINAL
+import com.filmdesk.app.model.CropGuide
+import com.filmdesk.app.model.CropHandle
 import com.filmdesk.app.model.PastePart
+import com.filmdesk.app.model.centeredRect
+import com.filmdesk.app.model.cropBase
+import com.filmdesk.app.model.cropRect
+import com.filmdesk.app.model.lockRatio
+import com.filmdesk.app.model.rotateRect
+import com.filmdesk.app.model.withCropRect
 import com.filmdesk.app.model.pasteFrom
 import com.filmdesk.app.model.caption
 import kotlinx.coroutines.CancellationException
@@ -90,7 +101,98 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
 
     var screen by mutableStateOf(Screen.Library); private set
     private val backStack = ArrayList<Screen>()
-    var tab by mutableStateOf(EditorTab.Film)
+    private var tabState by mutableStateOf(EditorTab.Film)
+    /** The Crop tab shows the whole upright photo with the frame on top, so it renders differently. */
+    var tab: EditorTab
+        get() = tabState
+        set(v) {
+            val was = tabState
+            tabState = v
+            if ((was == EditorTab.Crop) != (v == EditorTab.Crop)) requestRender()
+        }
+
+    // ------------------------------------------------------------------ crop
+    var cropGuide by mutableStateOf(CropGuide.Thirds)
+    /** Direction of the spiral / triangle guide (tap the chip again to turn it). */
+    var guideTurn by mutableIntStateOf(0)
+    /** The frame handle being dragged, or null. */
+    var cropHandle by mutableStateOf<CropHandle?>(null)
+    var straightening by mutableStateOf(false)
+    /** Long edge of the full-size photo, for showing the crop size in pixels. */
+    var fullLongEdge by mutableIntStateOf(0); private set
+
+    fun pickGuide(g: CropGuide) {
+        if (g == cropGuide) guideTurn = (guideTurn + 1) % g.turns else { cropGuide = g; guideTurn = 0 }
+    }
+
+    /** Size of the photo the crop frame is drawn on (after 90° turns). */
+    private fun cropBaseSize(): Pair<Int, Int>? {
+        val src = source ?: return null
+        return if (params.rotation % 180 == 0) src.width to src.height else src.height to src.width
+    }
+
+    fun setCropRatio(index: Int) {
+        val (w, h) = cropBaseSize() ?: return
+        val p = params
+        val cur = p.cropRect(w, h)
+        var next = p.copy(aspect = index, aspectFlip = if (index == p.aspect) p.aspectFlip else false)
+        val ratio = next.lockRatio(w, h)
+        if (ratio != null) {
+            next = next.withCropRect(centeredRect(ratio * h / w, (cur[0] + cur[2]) / 2f, (cur[1] + cur[3]) / 2f))
+        }
+        change(next)
+    }
+
+    fun swapCropRatio() {
+        val (w, h) = cropBaseSize() ?: return
+        val p = params
+        val cur = p.cropRect(w, h)
+        val cx = (cur[0] + cur[2]) / 2f
+        val cy = (cur[1] + cur[3]) / 2f
+        if (p.aspect == ASPECT_FREE) {
+            // Free: the frame's width and height (in pixels) swap.
+            val pxW = (cur[2] - cur[0]) * w
+            val pxH = (cur[3] - cur[1]) * h
+            var fw = pxH / w
+            var fh = pxW / h
+            val k = minOf(1f, 1f / fw, 1f / fh)
+            fw *= k; fh *= k
+            val l = (cx - fw / 2f).coerceIn(0f, 1f - fw)
+            val t = (cy - fh / 2f).coerceIn(0f, 1f - fh)
+            change(p.withCropRect(floatArrayOf(l, t, l + fw, t + fh)))
+            return
+        }
+        val next = p.copy(aspectFlip = !p.aspectFlip)
+        val ratio = next.lockRatio(w, h) ?: return
+        change(next.withCropRect(centeredRect(ratio * h / w, cx, cy)))
+    }
+
+    fun rotateCrop(cw: Boolean) {
+        val (w, h) = cropBaseSize() ?: return
+        val p = params
+        val r = rotateRect(p.cropRect(w, h), cw)
+        val turnsRatio = p.aspect != ASPECT_FREE && p.aspect != ASPECT_ORIGINAL && p.aspect != 1
+        change(
+            p.copy(
+                rotation = (p.rotation + if (cw) 90 else 270) % 360,
+                aspectFlip = if (turnsRatio) !p.aspectFlip else p.aspectFlip,
+            ).withCropRect(r)
+        )
+    }
+
+    fun flipCrop() {
+        val (w, h) = cropBaseSize() ?: return
+        val p = params
+        val r = p.cropRect(w, h)
+        // flipH mirrors before the 90° turn, so on a turned photo it looks like a vertical flip.
+        val m = if (p.rotation % 180 == 0) floatArrayOf(1f - r[2], r[1], 1f - r[0], r[3])
+        else floatArrayOf(r[0], 1f - r[3], r[2], 1f - r[1])
+        change(p.copy(flipH = !p.flipH, straighten = -p.straighten).withCropRect(m))
+    }
+
+    fun resetCrop() {
+        change(params.withGeometryOf(EditParams()))
+    }
 
     var source by mutableStateOf<Bitmap?>(null); private set
     var preview by mutableStateOf<Bitmap?>(null); private set
@@ -240,6 +342,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
                 )
             }
             stats = withContext(Dispatchers.Default) { ImageEngine.computeStats(bmp) }
+            fullLongEdge = withContext(Dispatchers.IO) { BitmapIO.longEdge(ctx, uri) }
             currentId = id
             params = start
             committed = params
@@ -253,7 +356,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun requestRender() {
         val src = source ?: return
-        val p = params
+        val p = if (tabState == EditorTab.Crop) params.cropBase() else params
         val st = stats
         renderJob?.cancel()
         renderJob = viewModelScope.launch {
@@ -280,7 +383,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun renderThumbs() {
         val src = thumbSource ?: return
-        val base = params.copy(simStrength = 1f, aspect = 0, rotation = 0, flipH = false)
+        val base = params.withoutGeometry().copy(simStrength = 1f)
         val st = stats
         thumbJob?.cancel()
         thumbJob = viewModelScope.launch {
@@ -326,7 +429,9 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
     /** Live change (e.g. while dragging a slider). Call [commit] when the gesture ends. */
     fun updateParams(p: EditParams) {
         if (p == params) return
+        val sameImage = tabState == EditorTab.Crop && p.cropBase() == params.cropBase()
         params = p
+        if (sameImage) return // the crop view draws the frame and straighten itself
         requestRender()
     }
 
