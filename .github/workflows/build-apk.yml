@@ -23,22 +23,7 @@ jobs:
       - name: Accept Android SDK licenses
         run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
 
-      # Fixed signing key from the repo secrets FILMDESK_KEYSTORE (base64) and FILMDESK_KEY_PASSWORD.
-      - name: Signing key
-        env:
-          KEYSTORE_B64: ${{ secrets.FILMDESK_KEYSTORE }}
-        run: |
-          if [ -n "$KEYSTORE_B64" ]; then
-            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/filmdesk.jks"
-            echo "FILMDESK_KEYSTORE_FILE=$RUNNER_TEMP/filmdesk.jks" >> "$GITHUB_ENV"
-            echo "Using the fixed Film Desk signing key"
-          else
-            echo "::warning::No signing key secret yet: this APK uses a temporary key (uninstall the old app first)."
-          fi
-
       - name: Build release APK
-        env:
-          FILMDESK_KEY_PASSWORD: ${{ secrets.FILMDESK_KEY_PASSWORD }}
         run: |
           set -o pipefail
           chmod +x gradlew
