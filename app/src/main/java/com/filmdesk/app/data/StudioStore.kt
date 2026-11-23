@@ -92,10 +92,13 @@ class StudioStore(context: Context) {
         }
     }
 
-    /** Deletes private copies that no Studio photo uses any more. */
-    fun cleanCopies(list: List<StudioItem>) {
+    /**
+     * Deletes private copies that no Studio photo uses any more. Only files from before
+     * [olderThan] are touched, so a photo being shared in right now is never removed.
+     */
+    fun cleanCopies(list: List<StudioItem>, olderThan: Long) {
         val used = list.mapNotNull { it.uri.path }.toHashSet()
-        importDir.listFiles()?.forEach { f -> if (f.path !in used) f.delete() }
+        importDir.listFiles()?.forEach { f -> if (f.path !in used && f.lastModified() < olderThan) f.delete() }
     }
 
     private fun thumbFile(id: Long) = File(thumbDir, "$id.jpg")

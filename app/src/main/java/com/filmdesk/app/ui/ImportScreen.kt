@@ -91,7 +91,7 @@ fun ImportScreen(vm: EditorViewModel) {
     var photos by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
     var refresh by remember { mutableStateOf(0) }
     var picked by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
-    val inStudio = remember(vm.studio) { vm.studio.map { it.uri.toString() }.toHashSet() }
+    val inStudio = remember(vm.studio) { vm.studio.map { vm.mediaKey(it.source?.let(android.net.Uri::parse) ?: it.uri) }.toHashSet() }
 
     fun finish(uris: List<android.net.Uri>) {
         if (uris.isEmpty()) return
@@ -100,7 +100,10 @@ fun ImportScreen(vm: EditorViewModel) {
     }
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(100)) { uris ->
-        finish(uris)
+        if (uris.isNotEmpty()) {
+            vm.importPicked(uris)
+            vm.back()
+        }
     }
     val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         granted = hasAccess()
@@ -218,7 +221,7 @@ fun ImportScreen(vm: EditorViewModel) {
                 ) {
                     items(photos, key = { it.id }) { item ->
                         val sel = picked.any { it.id == item.id }
-                        MediaThumb(item, selected = sel, already = item.uri.toString() in inStudio) {
+                        MediaThumb(item, selected = sel, already = vm.mediaKey(item.uri) in inStudio) {
                             picked = if (sel) picked.filterNot { it.id == item.id } else picked + item
                         }
                     }

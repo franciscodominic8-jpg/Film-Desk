@@ -560,7 +560,10 @@ private fun NumberField(
 ) {
     var text by remember(key) { mutableStateOf(value) }
     var focused by remember { mutableStateOf(false) }
-    LaunchedEffect(value, focused) { if (!focused) text = value }
+    // Follow changes made elsewhere (e.g. a preset), but not the box's own typing.
+    LaunchedEffect(value, focused) {
+        if (!focused || text.toFloatOrNull() != value.toFloatOrNull()) text = value
+    }
     OutlinedTextField(
         value = text,
         onValueChange = { t ->

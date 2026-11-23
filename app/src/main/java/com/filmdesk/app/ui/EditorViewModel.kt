@@ -2,6 +2,7 @@ package com.filmdesk.app.ui
 
 import android.app.Application
 import android.content.Intent
+import android.provider.MediaStore
 import android.provider.OpenableColumns
 import android.graphics.Bitmap
 import android.net.Uri
@@ -389,6 +390,10 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
     fun openRecipes() {
         recipesFromStudio = screen != Screen.Editor
         recipeTargets = if (recipesFromStudio) selection else emptySet()
+        // Previews show the recipes on the photo they will change.
+        recipeThumbUri = studio.firstOrNull { it.id in recipeTargets }?.uri
+        if (recipeThumbUri != null || !recipesFromStudio) renderRecipeThumbs()
+        else { recipeThumbJob?.cancel(); recipeThumbs.clear() }
         navigate(Screen.Recipes)
     }
     var exporting by mutableStateOf(false); private set
@@ -412,7 +417,8 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         repeat(FILM_SIMS.size) { simThumbs.add(null) }
         studio = studioStore.load()
         val loaded = studio
-        viewModelScope.launch(Dispatchers.IO) { studioStore.cleanCopies(loaded) }
+        val startedAt = System.currentTimeMillis() - 5_000
+        viewModelScope.launch(Dispatchers.IO) { studioStore.cleanCopies(loaded, startedAt) }
         // Thumbnails load lazily as grid cells appear (see ensureThumb).
     }
 
@@ -465,13 +471,17 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         loadImage(item.uri, item.id, start)
     }
 
+    private var loadJob: Job? = null
+
     private fun loadImage(uri: Uri, id: Long, start: EditParams) {
+        // Opening another photo cancels a load still running, so the last one opened wins.
+        loadJob?.cancel()
         loading = true
         preview = null
         previewFor = null
         original = null
         navigate(Screen.Editor)
-        viewModelScope.launch {
+        loadJob = viewModelScope.launch {
             val ctx = getApplication<Application>()
             val bmp = withContext(Dispatchers.IO) {
                 try { BitmapIO.decode(ctx, uri, PREVIEW_EDGE) } catch (e: Exception) { null } catch (e: OutOfMemoryError) { null }
@@ -501,6 +511,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
             loading = false
             requestRender()
             renderThumbs()
+            recipeThumbUri = null
             renderRecipeThumbs()
         }
     }
@@ -553,14 +564,23 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** Renders every recipe's own look on the current photo (not the current settings). */
-    private fun renderRecipeThumbs() {
-        val src = thumbSource ?: return
-        val st = stats
+    /** Renders every recipe's own look on the current photo, or on [from] (not the current settings). */
+    /** Photo the recipe previews are drawn on when Recipes was opened from the Studio. */
+    private var recipeThumbUri: Uri? = null
+
+    private fun renderRecipeThumbs(from: Uri? = recipeThumbUri) {
+        val current = thumbSource
+        if (from == null && current == null) return
         val list = recipes
         recipeThumbJob?.cancel()
+        recipeThumbs.clear()
         recipeThumbJob = viewModelScope.launch {
-            delay(300)
+            delay(150)
+            val ctx = getApplication<Application>()
+            val src = if (from == null) current!! else withContext(Dispatchers.IO) {
+                try { BitmapIO.decode(ctx, from, THUMB_EDGE) } catch (e: Throwable) { null }
+            } ?: return@launch
+            val st = if (from == null) stats else withContext(Dispatchers.Default) { ImageEngine.computeStats(src) }
             try {
                 for (r in list) {
                     val bmp = withContext(Dispatchers.Default) {
@@ -810,11 +830,12 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
     fun importPhotos(uris: List<Uri>, quiet: Boolean = false, source: String? = null): List<StudioItem> {
         if (uris.isEmpty()) return emptyList()
         val cr = getApplication<Application>().contentResolver
-        val byUri = studio.associateBy { it.uri.toString() }
+        // The same phone photo can arrive as a gallery link or a photo-picker link: match both.
+        val byUri = studio.associateBy { mediaKey(it.source?.let(Uri::parse) ?: it.uri) }
         var nextId = max(System.currentTimeMillis(), (studio.maxOfOrNull { it.id } ?: 0L) + 1)
         val fresh = ArrayList<StudioItem>()
-        val result = uris.distinct().map { uri ->
-            byUri[uri.toString()] ?: run {
+        val result = uris.distinctBy { mediaKey(it) }.map { uri ->
+            byUri[mediaKey(source?.let(Uri::parse) ?: uri)] ?: run {
                 // Keeps access after a restart for photos picked with the system picker.
                 try { cr.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (e: Exception) { }
                 StudioItem(id = nextId++, uri = uri, source = source).also { fresh += it }
@@ -830,6 +851,48 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
             else -> "Imported ${fresh.size} photos"
         }
         return result
+    }
+
+    /**
+     * Picked from another app (system photo picker, Google Photos, Files…): keep the link when
+     * Android lets us, otherwise keep a private copy so the photo isn't lost after a restart.
+     */
+    fun importPicked(uris: List<Uri>) {
+        if (uris.isEmpty()) return
+        viewModelScope.launch {
+            val ctx = getApplication<Application>()
+            val cr = ctx.contentResolver
+            val known = studio.map { mediaKey(it.source?.let(Uri::parse) ?: it.uri) }.toHashSet()
+            val direct = ArrayList<Uri>()
+            var added = 0
+            var failed = 0
+            for (uri in uris.distinctBy { mediaKey(it) }) {
+                if (mediaKey(uri) in known) continue
+                val kept = try {
+                    cr.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION); true
+                } catch (e: Exception) {
+                    false
+                }
+                if (kept || uri.authority == MediaStore.AUTHORITY) { direct += uri; continue }
+                val copy = withContext(Dispatchers.IO) { studioStore.copyIn(ctx, uri) }
+                if (copy == null) { failed++; continue }
+                importPhotos(listOf(copy), quiet = true, source = uri.toString())
+                added++
+            }
+            if (direct.isNotEmpty()) added += direct.size.also { importPhotos(direct, quiet = true) }
+            message = when {
+                added == 0 && failed == 0 -> "Already in your Studio"
+                failed > 0 -> "Imported $added, couldn't read $failed"
+                added == 1 -> "Imported 1 photo"
+                else -> "Imported $added photos"
+            }
+        }
+    }
+
+    /** Same key for a gallery link and a photo-picker link to the same phone photo. */
+    fun mediaKey(uri: Uri): String {
+        val id = uri.lastPathSegment
+        return if (uri.authority == MediaStore.AUTHORITY && id != null && id.all { it.isDigit() }) "media:$id" else uri.toString()
     }
 
     /** Draws a Studio thumbnail with that photo's own edits, and caches it on disk. */
