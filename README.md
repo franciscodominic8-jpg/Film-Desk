@@ -56,6 +56,6 @@ capped by the device's available memory so low-end phones don't crash.
 
 ## Notes
 
-"Fujifilm", "Provia", "Velvia", "Classic Chrome" and the other film simulation names are trademarks of FUJIFILM Corporation This project is not affiliated with Fujifilm.
+"Fujifilm", "Provia", "Velvia", "Classic Chrome" and the other film simulation names are trademarks of FUJIFILM Corporation. This project is not affiliated with Fujifilm.
 
 The signing key in `app/` is only for the owner's own builds; anyone publishing their own version should sign it with their own key.
