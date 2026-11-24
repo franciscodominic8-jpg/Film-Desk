@@ -177,6 +177,7 @@ private val BOX_BG = Color(0xFF17140E)
  * Fujifilm-style Q menu: a grid of round dials showing every setting. Tapping a dial opens
  * its box right under that row (pointing at the dial); Done or tapping the dial again closes it.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun QMenuPanel(vm: EditorViewModel) {
     val p = vm.params
