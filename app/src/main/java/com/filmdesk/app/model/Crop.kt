@@ -29,7 +29,8 @@ enum class CropHandle(val left: Boolean, val top: Boolean, val right: Boolean, v
 /** Label of a ratio chip, e.g. "4:5", or "5:4" when turned. */
 fun ratioLabel(index: Int, flipped: Boolean): String {
     val label = ASPECTS[index].label
-    if (!flipped || index == ASPECT_FREE || index == ASPECT_ORIGINAL || index == ASPECT_SQUARE) return label
+    if (flipped && index == ASPECT_ORIGINAL) return "$label ⟲"
+    if (!flipped || index == ASPECT_FREE || index == ASPECT_SQUARE) return label
     val parts = label.split(':')
     return if (parts.size == 2) parts[1] + ":" + parts[0] else label
 }
@@ -42,7 +43,7 @@ fun EditParams.lockRatio(w: Int, h: Int): Float? {
         else -> ASPECTS[aspect.coerceIn(0, ASPECTS.lastIndex)].ratio
     }
     if (base <= 0f) return null
-    return if (aspectFlip && aspect != ASPECT_ORIGINAL) 1f / base else base
+    return if (aspectFlip) 1f / base else base
 }
 
 val EditParams.hasCropRect: Boolean get() = cropL > 0f || cropT > 0f || cropR < 1f || cropB < 1f

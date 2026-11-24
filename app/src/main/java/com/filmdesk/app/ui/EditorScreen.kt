@@ -123,7 +123,13 @@ fun EditorScreen(vm: EditorViewModel) {
                 EditorTopBar(vm)
                 if (vm.tab == EditorTab.Crop) CropView(vm, Modifier.weight(1f).fillMaxWidth())
                 else PreviewArea(vm, Modifier.weight(1f).fillMaxWidth())
-                BottomArea(vm, Modifier.fillMaxWidth().height(panel))
+                // Crop's tools are short: give the rest of the space to the photo being cropped.
+                BottomArea(
+                    vm,
+                    Modifier.fillMaxWidth().then(
+                        if (vm.tab == EditorTab.Crop) Modifier.heightIn(max = panel) else Modifier.height(panel)
+                    ),
+                )
                 EditorTabs(vm)
             }
         }

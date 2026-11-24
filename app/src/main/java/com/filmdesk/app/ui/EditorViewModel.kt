@@ -171,8 +171,10 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
     fun setCropRatio(index: Int) {
         val (w, h) = cropBaseSize() ?: return
         val p = params
+        // Tapping the ratio already in use keeps your frame as it is.
+        if (index == p.aspect) return
         val cur = p.cropRect(w, h)
-        var next = p.copy(aspect = index, aspectFlip = if (index == p.aspect) p.aspectFlip else false)
+        var next = p.copy(aspect = index, aspectFlip = false)
         val ratio = next.lockRatio(w, h)
         if (ratio != null) {
             next = next.withCropRect(centeredRect(ratio * h / w, (cur[0] + cur[2]) / 2f, (cur[1] + cur[3]) / 2f))
@@ -221,10 +223,12 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         val (w, h) = cropBaseSize() ?: return
         val p = params
         val r = p.cropRect(w, h)
-        // flipH mirrors before the 90° turn, so on a turned photo it looks like a vertical flip.
-        val m = if (p.rotation % 180 == 0) floatArrayOf(1f - r[2], r[1], 1f - r[0], r[3])
-        else floatArrayOf(r[0], 1f - r[3], r[2], 1f - r[1])
-        change(p.copy(flipH = !p.flipH, straighten = -p.straighten).withCropRect(m))
+        // Always a left-right mirror as you see it. flipH is applied before the 90° turn, so on
+        // a turned photo the turn also reverses (90° ↔ 270°); 0° and 180° stay as they are.
+        val m = floatArrayOf(1f - r[2], r[1], 1f - r[0], r[3])
+        change(
+            p.copy(flipH = !p.flipH, rotation = (360 - p.rotation) % 360, straighten = -p.straighten).withCropRect(m)
+        )
     }
 
     fun resetCrop() {
