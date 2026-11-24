@@ -148,7 +148,7 @@ function exportSheet(id) {
         if (M.isLossy(s)) {
           liveHooks = [];
           body.push(bigValue('Quality', () => String(S.exportSettings.quality), () => true, k => set(x => Object.assign(x, { quality: clamp(x.quality + k, 10, 100) }))));
-          body.push(tickSlider({ value: s.quality, min: 10, max: 100, step: 1, origin: 10, minLabel: '10', maxLabel: '100', description: 'Quality',
+          body.push(tickSlider({ value: s.quality, min: 10, max: 100, step: 1, origin: 10, resetTo: d.quality, minLabel: '10', maxLabel: '100', description: 'Quality',
             onChange: v => { setExport(Object.assign({}, S.exportSettings, { quality: Math.round(v) })); runLive(); }, onEnd: () => { S.dragging = false; draw(); } }));
         }
         if (M.canLimitSize(s)) body.push(limitRow(s, set));
@@ -205,8 +205,8 @@ function exportSheet(id) {
           body.push(textLine('Text', s.wmText, '© Your Name', 'wm', t => { setExport(Object.assign({}, S.exportSettings, { wmText: t.slice(0, 80) })); const pv = scrim.querySelector('.wm-preview'); if (pv) pv.replaceWith(watermarkPreview(S.exportSettings)); }));
           body.push(h('div', { class: 'row' }, h('div', { class: 'grow' }, h('div', { style: { fontSize: '14px' } }, 'Position'), h('div', { class: 'muted', style: { fontSize: '12px' } }, POSITIONS[s.wmPos])),
             h('div', { class: 'posgrid' }, POSITIONS.map((pname, i) => h('button', { class: i === s.wmPos ? 'on' : '', 'aria-label': pname, onclick: () => set(x => Object.assign(x, { wmPos: i })) })))));
-          body.push(labeledSlider('Size', s.wmSize, 2, 12, v => v + '%', v => ({ wmSize: v })));
-          body.push(labeledSlider('Opacity', s.wmOpacity, 10, 100, v => v + '%', v => ({ wmOpacity: v })));
+          body.push(labeledSlider('Size', s.wmSize, 2, 12, d.wmSize, v => ({ wmSize: v })));
+          body.push(labeledSlider('Opacity', s.wmOpacity, 10, 100, d.wmOpacity, v => ({ wmOpacity: v })));
           body.push(chipRow(M.WATERMARK_COLORS, s.wmColor, i => set(x => Object.assign(x, { wmColor: i }))));
         }
     }
@@ -247,12 +247,15 @@ function textLine(label, value, placeholder, fid, onInput) {
   inp.addEventListener('input', () => onInput(inp.value));
   return label ? h('label', { style: { display: 'flex', flexDirection: 'column', gap: '4px' } }, h('span', { class: 'muted', style: { fontSize: '12px' } }, label), inp) : inp;
 }
-function labeledSlider(label, value, min, max, display, toPatch) {
-  const val = h('span', { class: 'mono amber' }, display(value));
-  const sl = tickSlider({ value, min, max, step: 1, origin: min, description: label, valueText: display,
-    onChange: v => { setExport(Object.assign({}, S.exportSettings, toPatch(Math.round(v)))); val.textContent = display(Math.round(v)); const pv = document.querySelector('.wm-preview'); if (pv) pv.replaceWith(watermarkPreview(S.exportSettings)); },
+/** Watermark size / opacity slider in the same style as the rest of the app. */
+function labeledSlider(label, value, min, max, def, toPatch) {
+  const val = h('span', { class: 'mono', style: { fontSize: '13px' } });
+  const show = v => { val.textContent = v + '%'; val.style.color = v !== def ? C.amber : C.muted; };
+  show(value);
+  const sl = tickSlider({ value, min, max, step: 1, origin: min, resetTo: def, description: 'Watermark ' + label, valueText: v => v + '%',
+    onChange: v => { v = Math.round(v); setExport(Object.assign({}, S.exportSettings, toPatch(v))); show(v); const pv = document.querySelector('.wm-preview'); if (pv) pv.replaceWith(watermarkPreview(S.exportSettings)); },
     onEnd: () => { S.dragging = false; } });
-  return h('div', null, h('div', { class: 'row', style: { fontSize: '14px' } }, h('span', { class: 'grow' }, label), val), sl);
+  return h('div', null, h('div', { class: 'row', style: { padding: '0 4px' } }, h('span', { class: 'grow', style: { fontSize: '14px' } }, label), val), sl);
 }
 function watermarkPreview(s) {
   const pv = S.previewImg, cv = h('canvas');

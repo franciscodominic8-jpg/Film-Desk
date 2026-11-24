@@ -217,9 +217,18 @@ function valueSliderRow(label, color, getV, min, max, def, desc, onChange, onSet
     const v = clamp(Math.round(st.v + dx / Math.max(1, cv.clientWidth - 18) * (max - min)), min, max);
     if (v !== getV()) { onChange(v); draw(); }
   });
-  const end = () => { if (st && st.drag) { st = null; dragEnded(); commit(); refreshEditor(); } else st = null; };
+  let tapTimer = 0, lastTap = 0;
+  const end = e => {
+    if (st && st.drag) { st = null; dragEnded(); commit(); refreshEditor(); return; }
+    if (!st || e.type !== 'pointerup') { st = null; return; }
+    st = null;
+    const now = Date.now(), r = cv.getBoundingClientRect(), x = e.clientX;
+    clearTimeout(tapTimer);
+    if (now - lastTap < 300) { lastTap = 0; onSet(def); return; }
+    lastTap = now;
+    tapTimer = setTimeout(() => onSet(clamp(Math.round(min + clamp((x - r.left - 9) / Math.max(1, r.width - 18), 0, 1) * (max - min)), min, max)), 260);
+  };
   cv.addEventListener('pointerup', end); cv.addEventListener('pointercancel', end);
-  cv.addEventListener('dblclick', () => onSet(def));
   cv.addEventListener('keydown', e => { const k = e.key === 'ArrowLeft' ? -1 : e.key === 'ArrowRight' ? 1 : 0; if (k) { e.preventDefault(); onSet(clamp(getV() + k, min, max)); } });
   const apply = () => { const v = parseInt(box.value, 10); if (isNaN(v)) box.value = getV(); else if (clamp(v, min, max) !== getV()) onSet(clamp(v, min, max)); else box.value = getV(); };
   box.addEventListener('input', () => { box.value = box.value.replace(/\D/g, '').slice(0, 3); });

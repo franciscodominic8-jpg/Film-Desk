@@ -16,7 +16,7 @@ window.addEventListener('popstate', () => {
   if (S.screen === 'editor' && S.curveMode) { closeCurve(true); return; }
   if (S.screen === 'editor' && S.sheet) {
     history.pushState({ fd: S.backStack.length }, '');
-    if (S.sheet.startsWith('q:')) doneSheet(); else cancelSheet();
+    doneSheet(); // Back closes the open panel and keeps its changes (✕ cancels).
     return;
   }
   if (S.screen === 'studio') { if (S.selectMode || S.selection.size) { clearSelection(); } return; }
@@ -317,8 +317,11 @@ function pickGuide(id) {
 }
 function setCropRatio(index) {
   const sz = cropBaseSize(); if (!sz) return;
-  const [w, hh] = sz, p = S.params, cur = M.cropRect(p, w, hh);
-  let next = M.copy(p, { aspect: index, aspectFlip: index === p.aspect ? p.aspectFlip : false });
+  const [w, hh] = sz, p = S.params;
+  // Tapping the ratio already in use keeps your frame as it is.
+  if (index === p.aspect) return;
+  const cur = M.cropRect(p, w, hh);
+  let next = M.copy(p, { aspect: index, aspectFlip: false });
   const ratio = M.lockRatio(next, w, hh);
   if (ratio != null) next = M.withCropRect(next, M.centeredRect(ratio * hh / w, (cur[0] + cur[2]) / 2, (cur[1] + cur[3]) / 2));
   change(next);
@@ -348,9 +351,11 @@ function rotateCrop(cw) {
 function flipCrop() {
   const sz = cropBaseSize(); if (!sz) return;
   const p = S.params, r = M.cropRect(p, sz[0], sz[1]);
-  const m = p.rotation % 180 === 0 ? [1 - r[2], r[1], 1 - r[0], r[3]] : [r[0], 1 - r[3], r[2], 1 - r[1]];
+  // Always a left-right mirror as you see it. flipH is applied before the 90° turn, so on
+  // a turned photo the turn also reverses (90° ↔ 270°); 0° and 180° stay as they are.
+  const m = [1 - r[2], r[1], 1 - r[0], r[3]];
   S.cropResets++;
-  change(M.withCropRect(M.copy(p, { flipH: !p.flipH, straighten: -p.straighten }), m));
+  change(M.withCropRect(M.copy(p, { flipH: !p.flipH, rotation: (360 - p.rotation) % 360, straighten: -p.straighten }), m));
 }
 function resetCrop() { S.cropResets++; change(M.withGeometryOf(S.params, M.DEF)); }
 

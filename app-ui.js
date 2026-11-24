@@ -131,7 +131,9 @@ function renderEditor() {
       h('div', { class: 'bottom', style: { flex: '1 1 auto', minHeight: 0, justifyContent: 'flex-start' } }, bottomArea())));
   } else {
     const panelH = Math.round(appEl().clientHeight * PANEL_FRACTION);
-    main.append(h('div', { class: 'bottom', style: { height: panelH + 'px' } }, bottomArea()), editorTabs());
+    // Crop's tools are short: give the rest of the space to the photo being cropped.
+    const bstyle = S.tab === 'Crop' ? { maxHeight: panelH + 'px' } : { height: panelH + 'px' };
+    main.append(h('div', { class: 'bottom', style: bstyle }, bottomArea()), editorTabs());
     scr.append(main);
   }
   return scr;
@@ -264,7 +266,7 @@ const Q_DIALS = [
   ['sharp', 'Sharpness', ['sharp']], ['nr', 'High ISO NR', ['nr']], ['clarity', 'Clarity', ['clarity']], ['mono', 'Mono WC/MG', ['mwc', 'mmg']],
   ['skin', 'Smooth Skin', ['skin']],
 ].map(([id, label, settings]) => ({ id, label, settings }));
-const dialChanged = (d, p) => d.settings.some(id => !M.settingIsDefault(M.setting(id), p));
+const dialChanged = (d, p) => d.settings.some(id => !M.settingIsDefault(M.setting(id), p)) || (d.id === 'sim' && p.simStrength !== 1);
 const dialLock = (d, p) => M.lockReason(d.settings[0], p);
 const GRAIN_CODES = ['OFF', 'W·S', 'W·L', 'S·S', 'S·L'];
 function expShort(t) {
@@ -337,14 +339,17 @@ function qBox(d, col, cols) {
   });
   const box = h('div', { class: 'qbox-wrap' }, pointer,
     h('div', { class: 'qbox', role: 'group', 'aria-label': title },
-      h('div', { class: 'row' }, h('div', { class: 'grow', style: { fontSize: '15px', fontWeight: 700 } }, title),
+      h('div', { class: 'row', style: { gap: '8px' } },
+        d.id === 'sim' ? [h('span', { class: 'label', style: { letterSpacing: '1px', flex: 'none' } }, 'Film Simulation'),
+          h('div', { class: 'grow ellipsis', style: { fontSize: '16px', fontWeight: 700 } }, M.FILM_SIMS[p.sim].name)]
+          : h('div', { class: 'grow', style: { fontSize: '15px', fontWeight: 700 } }, title),
         h('div', { class: 'muted ellipsis' + (d.id === 'sim' ? ' mono' : ''), style: { fontSize: '11px' } }, d.id === 'sim' ? (p.sim + 1) + '/' + M.FILM_SIMS.length : (DIAL_HINTS[d.id] || ''))),
       lock ? [h('div', { class: 'mono muted', style: { fontSize: '20px', fontWeight: 600 } }, dialValue(d, p)), h('div', { class: 'row lock' }, icon('lock'), h('span', null, lock))]
         : qBoxContent(d),
-      h('div', { class: 'row' },
+      h('div', { class: 'row', style: { height: '44px' } },
         lock ? null : h('button', { class: 'text-btn', onclick: () => updateParams(resetDial(d, S.params)) }, 'Reset'),
         h('div', { class: 'grow' }),
-        h('button', { class: 'btn primary', style: { height: '38px', padding: '0 20px' }, onclick: () => doneSheet() }, 'Done'))));
+        h('button', { class: 'btn primary', style: { height: '36px', padding: '0 20px' }, onclick: () => doneSheet() }, 'Done'))));
   // Bring the box into view once it is on screen (only when it was just opened).
   if (qBox.lastOpened !== d.id) { qBox.lastOpened = d.id; setTimeout(() => box.scrollIntoView({ block: 'nearest', behavior: 'smooth' }), 80); }
   return box;
@@ -360,7 +365,7 @@ function qBoxContent(d) {
       const sl = tickSlider({ value: pct(), min: 0, max: 100, step: 1, origin: 100, description: 'Film strength', valueText: v => v + '%',
         onChange: v => up({ simStrength: clamp(v, 0, 100) / 100 }), onEnd: refreshEditor });
       live(() => sl.update(pct()));
-      return [h('div', null, h('div', { style: { fontSize: '18px', fontWeight: 700 } }, sim.name), h('div', { class: 'muted', style: { fontSize: '12px' } }, sim.description)),
+      return [h('div', { class: 'muted ellipsis', style: { fontSize: '12px' } }, sim.description),
         h('div', { style: { margin: '0 -14px' } }, simStrip(i => up({ sim: i }))),
         h('div', { class: 'row' }, h('span', { style: { width: '62px', fontSize: '12px', flex: 'none' } }, 'Strength'), h('div', { class: 'grow' }, sl), val)];
     }
@@ -380,7 +385,7 @@ function qBoxContent(d) {
       upd(); live(upd);
       return h('div', { class: 'row' },
         h('div', { class: 'grow' }, shiftPad(() => [S.params.monoWC, S.params.monoMG], (x, y) => up({ monoWC: x, monoMG: y }),
-          { left: 'Cool', right: 'Warm', top: 'M', bottom: 'G', lc: '#6FA8FF', rc: '#FFA24D', tc: '#E05BD1', bc: '#5BD17A' }, 140)),
+          { left: 'Cool', right: 'Warm', top: 'M', bottom: 'G', lc: '#6FA8FF', rc: '#FFA24D', tc: '#E05BD1', bc: '#5BD17A' }, 120)),
         h('div', { style: { paddingLeft: '12px' } }, h('div', { class: 'label' }, 'B&W tone'), wc, mg));
     }
     default: {
@@ -399,6 +404,7 @@ function resetDial(d, p) {
   if (d.id === 'wb') return M.copy(p, { wb: z.wb, kelvin: z.kelvin, wbShiftR: 0, wbShiftB: 0 });
   if (d.id === 'wbs') return M.copy(p, { wbShiftR: 0, wbShiftB: 0 });
   if (d.id === 'mono') return M.copy(p, { monoWC: 0, monoMG: 0 });
+  if (d.id === 'sim') return M.copy(p, { sim: z.sim, simStrength: z.simStrength });
   const q = M.copy(p);
   d.settings.forEach(id => { const s = M.setting(id); q[s.key] = z[s.key]; });
   return q;
@@ -450,8 +456,7 @@ function whiteBalancePanel() {
   const p = S.params, preset = M.WB_PRESETS[p.wb];
   const up = o => updateParams(M.copy(S.params, o));
   const out = [
-    bigValue('', () => M.WB_PRESETS[S.params.wb].type === 'CUSTOM' ? S.params.kelvin + 'K' : M.WB_PRESETS[S.params.wb].label, () => S.params.wb !== 0,
-      preset.type === 'CUSTOM' ? k => up({ kelvin: clamp(S.params.kelvin + k * 100, 2500, 10000) }) : null),
+    preset.type === 'CUSTOM' ? bigValue('', () => S.params.kelvin + 'K', () => true, k => up({ kelvin: clamp(S.params.kelvin + k * 100, 2500, 10000) })) : null,
     h('div', { class: 'scroll-x', 'data-keep': 'wbpresets' }, h('div', { class: 'row', style: { gap: '2px' } }, M.WB_PRESETS.map((w, i) => {
       const short = { AS_SHOT: 'SHOT', AUTO: 'AUTO', CUSTOM: 'K', UNDERWATER: 'UW' }[w.type] || WB_SHORT[w.label] || w.label.slice(0, 3);
       return valueDial(short, WB_LABEL[w.label] || w.label, false, () => up({ wb: i }), { selected: p.wb === i });
@@ -471,7 +476,7 @@ function whiteBalancePanel() {
   upd(); live(upd);
   out.push(h('div', { class: 'row' },
     h('div', { class: 'grow' }, shiftPad(() => [S.params.wbShiftR, S.params.wbShiftB], (x, y) => up({ wbShiftR: x, wbShiftB: y }),
-      { left: 'C', right: 'R', top: 'B', bottom: 'Y', lc: '#4FD1D9', rc: '#FF5A5A', tc: '#5A8CFF', bc: '#FFD24D' }, 140)),
+      { left: 'C', right: 'R', top: 'B', bottom: 'Y', lc: '#4FD1D9', rc: '#FF5A5A', tc: '#5A8CFF', bc: '#FFD24D' }, 120)),
     h('div', { style: { paddingLeft: '12px' } }, h('div', { class: 'label' }, 'WB shift'), rR, rB,
       h('button', { class: 'text-btn', style: { fontSize: '11px', paddingLeft: 0 }, onclick: () => up({ wbShiftR: 0, wbShiftB: 0 }) }, 'Centre'))));
   return out;

@@ -93,8 +93,8 @@ function loadRecipes() {
 const W = {
   main: null, thumbs: null, jobs: new Map(), jobSeq: 0,
   init() {
-    this.main = new Worker('worker.js?v=3');
-    this.thumbs = new Worker('worker.js?v=3');
+    this.main = new Worker('worker.js?v=4');
+    this.thumbs = new Worker('worker.js?v=4');
     this.main.onmessage = e => onMainWorker(e.data);
     this.thumbs.onmessage = e => this.route(e.data);
     this.exportW = null;
@@ -113,7 +113,7 @@ const W = {
       this.jobs.set(job, { resolve, reject, onThumb });
       let w = this.thumbs;
       if (target === 'export') {
-        if (!this.exportW) { this.exportW = new Worker('worker.js?v=3'); this.exportW.onmessage = e => this.route(e.data); }
+        if (!this.exportW) { this.exportW = new Worker('worker.js?v=4'); this.exportW.onmessage = e => this.route(e.data); }
         w = this.exportW;
       }
       w.postMessage(Object.assign({ job }, msg), transfer || []);
@@ -238,9 +238,10 @@ function runLive() { liveHooks.forEach(f => f()); }
 function tickSlider(o) {
   const { min, max, step } = o;
   const origin = o.origin != null ? o.origin : clamp(0, min, max);
+  const resetTo = o.resetTo != null ? o.resetTo : origin;
   const color = o.color || C.amber;
   const stepsTotal = Math.max(1, Math.round((max - min) / step));
-  const ticks = stepsTotal <= 24 ? stepsTotal : 20, speed = stepsTotal > 60 ? 0.5 : 1;
+  const ticks = stepsTotal <= 24 ? stepsTotal : 20;
   const snap = v => clamp(min + Math.round((v - min) / step) * step, min, max);
   let value = o.value;
   const cv = h('canvas', { tabindex: 0, role: 'slider', 'aria-label': o.description || '', 'aria-valuemin': min, 'aria-valuemax': max });
@@ -272,12 +273,24 @@ function tickSlider(o) {
       else return;
     }
     e.preventDefault();
+    // 1:1 with the finger: moving the full track width covers the full range.
     const ww = Math.max(1, cv.clientWidth - 28);
-    set(start.v + dx / ww * (max - min) * speed);
+    set(start.v + dx / ww * (max - min));
   });
-  const end = () => { if (start && start.drag) { start = null; dragEnded(); o.onEnd && o.onEnd(); } else start = null; };
+  // Tap the track to jump there; double-tap goes back to the default.
+  let tapTimer = 0, lastTap = 0;
+  const at = x => { const r = cv.getBoundingClientRect(); return min + clamp((x - r.left - 14) / Math.max(1, r.width - 28), 0, 1) * (max - min); };
+  const end = e => {
+    if (start && start.drag) { start = null; dragEnded(); o.onEnd && o.onEnd(); return; }
+    if (!start || e.type !== 'pointerup') { start = null; return; }
+    start = null;
+    const now = Date.now(), x = e.clientX;
+    clearTimeout(tapTimer);
+    if (now - lastTap < 300) { lastTap = 0; set(resetTo); o.onEnd && o.onEnd(); return; }
+    lastTap = now;
+    tapTimer = setTimeout(() => { set(at(x)); o.onEnd && o.onEnd(); }, 260);
+  };
   cv.addEventListener('pointerup', end); cv.addEventListener('pointercancel', end);
-  cv.addEventListener('dblclick', () => { set(origin); o.onEnd && o.onEnd(); });
   cv.addEventListener('keydown', e => {
     const k = e.key === 'ArrowLeft' || e.key === 'ArrowDown' ? -1 : e.key === 'ArrowRight' || e.key === 'ArrowUp' ? 1 : 0;
     if (k) { e.preventDefault(); set(value + k * step); o.onEnd && o.onEnd(); }

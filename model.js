@@ -252,7 +252,8 @@
   // ------------------------------------------------------------------ crop
   M.ratioLabel = (index, flipped) => {
     const label = M.ASPECTS[index].label;
-    if (!flipped || index === M.ASPECT_FREE || index === M.ASPECT_ORIGINAL || index === 1) return label;
+    if (flipped && index === M.ASPECT_ORIGINAL) return label + ' ⟲';
+    if (!flipped || index === M.ASPECT_FREE || index === 1) return label;
     const parts = label.split(':');
     return parts.length === 2 ? parts[1] + ':' + parts[0] : label;
   };
@@ -260,7 +261,7 @@
     if (p.aspect === M.ASPECT_FREE) return null;
     const base = p.aspect === M.ASPECT_ORIGINAL ? w / h : M.ASPECTS[clamp(p.aspect, 0, M.ASPECTS.length - 1)].ratio;
     if (base <= 0) return null;
-    return p.aspectFlip && p.aspect !== M.ASPECT_ORIGINAL ? 1 / base : base;
+    return p.aspectFlip ? 1 / base : base;
   };
   M.hasCropRect = p => p.cropL > 0 || p.cropT > 0 || p.cropR < 1 || p.cropB < 1;
   M.centeredRect = (rf, cx = 0.5, cy = 0.5) => {
