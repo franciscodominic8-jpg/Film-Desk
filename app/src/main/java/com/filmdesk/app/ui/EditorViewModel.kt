@@ -474,7 +474,11 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Returns false when there is nothing to go back to (the system closes the app). */
     fun back(): Boolean {
-        if (screen == Screen.Editor && sheet != null) { cancelSheet(); return true }
+        if (screen == Screen.Editor && sheet != null) {
+            // Q Menu boxes have Reset / Done only, so back keeps their changes; other panels cancel.
+            if (sheet?.startsWith("q:") == true) doneSheet() else cancelSheet()
+            return true
+        }
         if (screen == Screen.Editor) flushSave()
         if (backStack.isEmpty()) {
             if (screen == Screen.Library) return false

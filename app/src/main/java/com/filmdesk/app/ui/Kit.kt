@@ -169,7 +169,9 @@ private fun SmallMono(text: String, modifier: Modifier, align: TextAlign) {
 @Composable
 fun BigValue(title: String, value: String, changed: Boolean, modifier: Modifier = Modifier, onNudge: ((Int) -> Unit)? = null) {
     Column(modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(title.uppercase(), color = FD.Muted, fontSize = 11.sp, fontFamily = FD.Mono, letterSpacing = 2.sp)
+        if (title.isNotBlank()) {
+            Text(title.uppercase(), color = FD.Muted, fontSize = 11.sp, fontFamily = FD.Mono, letterSpacing = 2.sp)
+        }
         Row(verticalAlignment = Alignment.CenterVertically) {
             if (onNudge != null) {
                 IconButton(onClick = { onNudge(-1) }, modifier = Modifier.size(36.dp)) {

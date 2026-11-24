@@ -146,7 +146,7 @@ private fun BottomArea(vm: EditorViewModel, modifier: Modifier) {
                 EditorTab.Crop -> Column(Modifier.verticalScroll(rememberScrollState())) { CropTools(vm) }
             }
             sheet == "film" -> FilmStrengthSheet(vm)
-            sheet.startsWith("q:") -> QSheet(vm, sheet.removePrefix("q:"))
+            sheet.startsWith("q:") -> QMenuPanel(vm) // the box opens inside the grid
             sheet.startsWith("pro:") -> ProSheet(vm, sheet.removePrefix("pro:"))
             else -> FilmTab(vm)
         }

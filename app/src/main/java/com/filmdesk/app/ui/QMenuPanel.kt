@@ -1,6 +1,21 @@
 package com.filmdesk.app.ui
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.zIndex
+import kotlinx.coroutines.delay
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -137,14 +152,41 @@ private fun dialValue(d: QDial, p: EditParams): String = when (d.id) {
     else -> setting(d.settings.first()).effectiveDisplay(p)
 }
 
-/** Fujifilm-style Q menu: a grid of round dials showing every setting; tap one to change it. */
+/** Short hint shown at the right of each box's title. */
+private fun dialHint(d: QDial): String = when (d.id) {
+    "sim" -> ""
+    "exp" -> "−3 … +3 EV, ⅓ steps"
+    "hl", "sh" -> "−2 soft … +4 hard"
+    "color", "sharp", "nr" -> "−4 … +4"
+    "clarity" -> "−5 … +5"
+    "wb", "wbs" -> "preset · Kelvin · shift"
+    "mono" -> "B&W films only"
+    "grain" -> "roughness · size"
+    "cc" -> "deeper strong colours"
+    "ccb" -> "richer blues"
+    "dr" -> "highlight roll-off"
+    "drp" -> "overrides DR, H, S"
+    "skin" -> "softens skin texture"
+    else -> ""
+}
+
+private val BOX_BG = Color(0xFF17140E)
+
+/**
+ * Fujifilm-style Q menu: a grid of round dials showing every setting. Tapping a dial opens
+ * its box right under that row (pointing at the dial); Done or tapping the dial again closes it.
+ */
 @Composable
 fun QMenuPanel(vm: EditorViewModel) {
     val p = vm.params
+    val openId = vm.sheet?.takeIf { it.startsWith("q:") }?.removePrefix("q:")
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(vertical = 8.dp)) {
         Row(Modifier.padding(horizontal = 16.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("Q MENU", color = FD.Muted, fontSize = 10.sp, fontFamily = FD.Mono, letterSpacing = 1.5.sp, modifier = Modifier.weight(1f))
-            TextButton(onClick = { vm.change(vm.params.resetCamera()) }) {
+            TextButton(onClick = {
+                if (vm.sheet != null) vm.doneSheet()
+                vm.change(vm.params.resetCamera())
+            }) {
                 Text("Reset all", color = FD.Muted, fontSize = 11.sp)
             }
         }
@@ -161,77 +203,158 @@ fun QMenuPanel(vm: EditorViewModel) {
                                     label = d.label,
                                     changed = dialChanged(d, p),
                                     dimmed = lock != null,
-                                    onClick = { vm.openSheet("q:${d.id}") },
+                                    selected = d.id == openId,
+                                    onClick = { if (d.id == openId) vm.doneSheet() else vm.openSheet("q:${d.id}") },
                                 )
                             }
                         }
                         repeat(cols - row.size) { Spacer(Modifier.weight(1f)) }
                     }
+                    val idx = row.indexOfFirst { it.id == openId }
+                    if (idx >= 0) QBox(vm, row[idx], idx, cols)
                 }
             }
         }
     }
 }
 
-// ---------------------------------------------------------------- option panels
-
+/** The option box under a row of dials, with a little pointer up to the open dial. */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun QSheet(vm: EditorViewModel, id: String) {
-    val d = Q_DIALS.firstOrNull { it.id == id } ?: return
+private fun QBox(vm: EditorViewModel, d: QDial, col: Int, cols: Int) {
+    val requester = remember { BringIntoViewRequester() }
+    LaunchedEffect(d.id) {
+        delay(80) // let the box appear first
+        requester.bringIntoView()
+    }
     val p = vm.params
     val lock = dialLock(d, p)
-    val onReset: (() -> Unit)? = if (lock != null) null else ({ vm.updateParams(resetDial(d, vm.params)) })
-    OptionPanel(onCancel = vm::cancelSheet, onReset = onReset, onDone = vm::doneSheet) {
-        if (lock != null) {
-            BigValue(d.label, dialValue(d, p), false)
+    val shape = RoundedCornerShape(14.dp)
+    Column(Modifier.fillMaxWidth().bringIntoViewRequester(requester)) {
+        Canvas(Modifier.fillMaxWidth().height(9.dp).offset(y = 1.5.dp).zIndex(1f)) {
+            val cx = size.width * (col + 0.5f) / cols
+            val h = size.height
+            val tri = Path().apply { moveTo(cx - h, h + 2f); lineTo(cx, 0f); lineTo(cx + h, h + 2f); close() }
+            drawPath(tri, BOX_BG)
+            val sw = 1.5.dp.toPx()
+            drawLine(FD.Amber, Offset(cx - h, h), Offset(cx, 0f), sw)
+            drawLine(FD.Amber, Offset(cx, 0f), Offset(cx + h, h), sw)
+        }
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .clip(shape)
+                .background(BOX_BG)
+                .border(1.5.dp, FD.Amber, shape)
+                .padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 6.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Filled.Lock, contentDescription = null, tint = FD.Muted, modifier = Modifier.size(14.dp))
-                Spacer(Modifier.width(6.dp))
-                Text(lock, color = FD.Muted, fontSize = 12.sp)
+                Text(
+                    if (d.id == "sim") "Film Simulation" else if (d.id == "wbs") "White Balance" else if (d.id == "mono") "Monochromatic Color" else d.label,
+                    color = FD.Text, fontSize = 15.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f),
+                )
+                Text(
+                    if (d.id == "sim") "${p.sim + 1}/${FILM_SIMS.size}" else dialHint(d),
+                    color = FD.Muted, fontSize = 11.sp, fontFamily = if (d.id == "sim") FD.Mono else null,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
             }
-        } else when (d.id) {
-            "sim" -> {
-                BigValue("Film simulation", FILM_SIMS[p.sim].name, p.sim != 0)
-                SimStrip(vm, onPick = { vm.updateParams(vm.params.copy(sim = it)) })
+            if (lock != null) {
+                Text(dialValue(d, p), color = FD.Muted, fontFamily = FD.Mono, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.Lock, contentDescription = null, tint = FD.Muted, modifier = Modifier.size(14.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(lock, color = FD.Muted, fontSize = 12.sp)
+                }
+            } else {
+                QBoxContent(vm, d)
             }
-            "grain" -> ChoiceTiles(d.label, GRAIN_OPTIONS.map { it.replace(" · ", "\n") }, p.grain, { vm.updateParams(vm.params.copy(grain = it)) }) { i -> grainTile(i) }
-            "cc" -> ChoiceTiles(d.label, CHROME_OPTIONS, p.colorChrome, { vm.updateParams(vm.params.copy(colorChrome = it)) }) { i ->
-                chromeTile(i, Color(0xFFFF7A2E), Color(0xFFD9301F))
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                if (lock == null) {
+                    TextButton(onClick = { vm.updateParams(resetDial(d, vm.params)) }) { Text("Reset", color = FD.Muted) }
+                }
+                Spacer(Modifier.weight(1f))
+                Button(
+                    onClick = vm::doneSheet,
+                    colors = ButtonDefaults.buttonColors(containerColor = FD.Amber, contentColor = FD.OnAmber),
+                    modifier = Modifier.height(38.dp),
+                ) { Text("Done", fontWeight = FontWeight.SemiBold) }
             }
-            "ccb" -> ChoiceTiles(d.label, CHROME_OPTIONS, p.colorChromeBlue, { vm.updateParams(vm.params.copy(colorChromeBlue = it)) }) { i ->
-                chromeTile(i, Color(0xFF5AA8FF), Color(0xFF1E5FD0))
+        }
+    }
+}
+
+// ---------------------------------------------------------------- box contents
+
+@Composable
+private fun QBoxContent(vm: EditorViewModel, d: QDial) {
+    val p = vm.params
+    when (d.id) {
+        "sim" -> {
+            val sim = FILM_SIMS[p.sim]
+            Column {
+                Text(sim.name, color = FD.Text, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Text(sim.description, color = FD.Muted, fontSize = 12.sp)
             }
-            "dr" -> ChoiceTiles(d.label, DR_OPTIONS, p.dynamicRange, { vm.updateParams(vm.params.copy(dynamicRange = it)) }) { i -> drTile(i) }
-            "drp" -> ChoiceTiles(d.label, DRP_OPTIONS, p.dRangePriority, { vm.updateParams(vm.params.copy(dRangePriority = it)) },
-                text = { i -> listOf("OFF", "W", "S", "AUTO")[i] })
-            "skin" -> ChoiceTiles(d.label, SKIN_OPTIONS, p.smoothSkin, { vm.updateParams(vm.params.copy(smoothSkin = it)) }) { i -> skinTile(i) }
-            "wb", "wbs" -> WhiteBalancePanel(vm)
-            "mono" -> {
-                BigValue("Monochromatic color", "WC ${signed(p.monoWC.toFloat())}  MG ${signed(p.monoMG.toFloat())}", p.monoWC != 0 || p.monoMG != 0)
+            SimStrip(vm, onPick = { vm.updateParams(vm.params.copy(sim = it)) })
+            val pct = (p.simStrength * 100).roundToInt()
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Strength", color = FD.Text, fontSize = 12.sp, modifier = Modifier.width(62.dp))
+                TickSlider(
+                    pct.toFloat(), 0f, 100f, 1f,
+                    onChange = { vm.updateParams(vm.params.copy(simStrength = it / 100f)) },
+                    modifier = Modifier.weight(1f), origin = 100f,
+                    description = "Film strength", valueText = "$pct%",
+                )
+                Text(
+                    "$pct%", color = if (pct != 100) FD.Amber else FD.Muted, fontFamily = FD.Mono, fontSize = 13.sp,
+                    textAlign = TextAlign.End, modifier = Modifier.width(44.dp),
+                )
+            }
+        }
+        "grain" -> ChoiceTiles(GRAIN_OPTIONS.map { it.replace(" · ", "\n") }, p.grain, { vm.updateParams(vm.params.copy(grain = it)) }) { i -> grainTile(i) }
+        "cc" -> ChoiceTiles(CHROME_OPTIONS, p.colorChrome, { vm.updateParams(vm.params.copy(colorChrome = it)) }) { i ->
+            chromeTile(i, Color(0xFFFF7A2E), Color(0xFFD9301F))
+        }
+        "ccb" -> ChoiceTiles(CHROME_OPTIONS, p.colorChromeBlue, { vm.updateParams(vm.params.copy(colorChromeBlue = it)) }) { i ->
+            chromeTile(i, Color(0xFF5AA8FF), Color(0xFF1E5FD0))
+        }
+        "dr" -> ChoiceTiles(DR_OPTIONS, p.dynamicRange, { vm.updateParams(vm.params.copy(dynamicRange = it)) }) { i -> drTile(i) }
+        "drp" -> ChoiceTiles(DRP_OPTIONS, p.dRangePriority, { vm.updateParams(vm.params.copy(dRangePriority = it)) },
+            text = { i -> listOf("OFF", "W", "S", "AUTO")[i] })
+        "skin" -> ChoiceTiles(SKIN_OPTIONS, p.smoothSkin, { vm.updateParams(vm.params.copy(smoothSkin = it)) }) { i -> skinTile(i) }
+        "wb", "wbs" -> WhiteBalancePanel(vm)
+        "mono" -> {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                 ShiftPad(
                     x = p.monoWC, y = p.monoMG,
                     onChange = { x, y -> vm.updateParams(vm.params.copy(monoWC = x, monoMG = y)) },
                     left = "Cool", right = "Warm", top = "M", bottom = "G",
                     leftColor = Color(0xFF6FA8FF), rightColor = Color(0xFFFFA24D), topColor = Color(0xFFE05BD1), bottomColor = Color(0xFF5BD17A),
+                    modifier = Modifier.weight(1f), padSize = 140.dp,
                 )
+                Column(Modifier.padding(start = 12.dp)) {
+                    Text("B&W TONE", color = FD.Muted, fontSize = 10.sp, fontFamily = FD.Mono, letterSpacing = 1.5.sp)
+                    Text("WC ${signed(p.monoWC.toFloat())}", color = if (p.monoWC != 0) FD.Amber else FD.Text, fontFamily = FD.Mono, fontSize = 14.sp)
+                    Text("MG ${signed(p.monoMG.toFloat())}", color = if (p.monoMG != 0) FD.Amber else FD.Text, fontFamily = FD.Mono, fontSize = 14.sp)
+                }
             }
-            else -> {
-                val s = setting(d.settings.first()) as QSetting.Stepper
-                val v = s.get(p)
-                val shown = if (d.id == "exp") expShort(p.exposureThirds) else s.format(v)
-                BigValue(d.label, shown, !s.isDefault(p), onNudge = { k ->
-                    vm.updateParams(s.set(vm.params, s.snap(s.get(vm.params) + k * s.step)))
-                })
-                val minL = if (d.id == "exp") "−3" else s.format(s.min)
-                val maxL = if (d.id == "exp") "+3" else s.format(s.max)
-                TickSlider(
-                    v, s.min, s.max, s.step,
-                    onChange = { vm.updateParams(s.set(vm.params, s.snap(it))) },
-                    minLabel = minL, midLabel = "0", maxLabel = maxL,
-                    description = d.label, valueText = shown,
-                )
-                Text(s.hint, color = FD.Muted, fontSize = 11.sp, modifier = Modifier.fillMaxWidth().padding(top = 2.dp))
-            }
+        }
+        else -> {
+            val s = setting(d.settings.first()) as QSetting.Stepper
+            val v = s.get(p)
+            val shown = if (d.id == "exp") expShort(p.exposureThirds) else s.format(v)
+            BigValue("", shown, !s.isDefault(p), onNudge = { k ->
+                vm.updateParams(s.set(vm.params, s.snap(s.get(vm.params) + k * s.step)))
+            })
+            TickSlider(
+                v, s.min, s.max, s.step,
+                onChange = { vm.updateParams(s.set(vm.params, s.snap(it))) },
+                minLabel = if (d.id == "exp") "−3" else s.format(s.min), midLabel = "0",
+                maxLabel = if (d.id == "exp") "+3" else s.format(s.max),
+                description = d.label, valueText = shown,
+            )
         }
     }
 }
@@ -258,14 +381,12 @@ private fun resetDial(d: QDial, p: EditParams): EditParams {
 
 @Composable
 private fun ChoiceTiles(
-    title: String,
     labels: List<String>,
     selected: Int,
     onPick: (Int) -> Unit,
     text: ((Int) -> String)? = null,
     draw: (DrawScope.(Int) -> Unit)? = null,
 ) {
-    BigValue(title, labels[selected.coerceIn(0, labels.lastIndex)].replace("\n", " "), selected != 0)
     Row(
         Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.Center,
@@ -333,7 +454,7 @@ private fun WhiteBalancePanel(vm: EditorViewModel) {
     val p = vm.params
     val preset = WB_PRESETS[p.wb.coerceIn(0, WB_PRESETS.lastIndex)]
     BigValue(
-        "White balance", if (preset.type == WbType.CUSTOM) "${p.kelvin}K" else preset.label, p.wb != 0,
+        "", if (preset.type == WbType.CUSTOM) "${p.kelvin}K" else preset.label, p.wb != 0,
         onNudge = if (preset.type == WbType.CUSTOM) ({ k ->
             vm.updateParams(vm.params.copy(kelvin = (vm.params.kelvin + k * 100).coerceIn(2500, 10000)))
         }) else null,
