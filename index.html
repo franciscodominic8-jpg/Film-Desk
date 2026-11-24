@@ -170,6 +170,10 @@ input, textarea { font: inherit; color: var(--text); }
 .pictile.on .lbl { color: var(--text); }
 .lock { gap: 6px; color: var(--muted); font-size: 12px; }
 .lock .material-icons { font-size: 14px; }
+.qbox-wrap { display: flex; flex-direction: column; }
+.qbox-pointer { width: 100%; height: 11px; display: block; margin-bottom: -1.5px; position: relative; z-index: 1; }
+.qbox { background: #17140E; border: 1.5px solid var(--amber); border-radius: 14px; padding: 12px 14px 6px; display: flex; flex-direction: column; gap: 8px; }
+.qbox .tiles { justify-content: flex-start; }
 .shiftpad { touch-action: none; display: block; margin: 0 auto; cursor: crosshair; }
 .slider-row .row { padding: 0 4px; font-size: 12px; }
 .swatches { display: flex; justify-content: space-between; }
@@ -276,13 +280,13 @@ textarea.field { min-height: 120px; resize: vertical; font: 12px var(--mono); }
 <div id="app"></div>
 <input id="file" type="file" accept="image/*" multiple hidden>
 <noscript><p style="padding:24px">Film Desk needs JavaScript.</p></noscript>
-<script src="model.js?v=2"></script>
-<script src="engine.js?v=2"></script>
-<script src="files.js?v=2"></script>
-<script src="app-core.js?v=2"></script>
-<script src="app-vm.js?v=2"></script>
-<script src="app-ui.js?v=2"></script>
-<script src="app-curvecrop.js?v=2"></script>
-<script src="app-pages.js?v=2"></script>
+<script src="model.js?v=3"></script>
+<script src="engine.js?v=3"></script>
+<script src="files.js?v=3"></script>
+<script src="app-core.js?v=3"></script>
+<script src="app-vm.js?v=3"></script>
+<script src="app-ui.js?v=3"></script>
+<script src="app-curvecrop.js?v=3"></script>
+<script src="app-pages.js?v=3"></script>
 </body>
 </html>

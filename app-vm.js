@@ -14,6 +14,11 @@ window.addEventListener('popstate', () => {
   if (skipPop) { skipPop--; return; }
   if (document.querySelector('.scrim')) { closeOverlays(); history.pushState({ fd: S.backStack.length }, ''); return; }
   if (S.screen === 'editor' && S.curveMode) { closeCurve(true); return; }
+  if (S.screen === 'editor' && S.sheet) {
+    history.pushState({ fd: S.backStack.length }, '');
+    if (S.sheet.startsWith('q:')) doneSheet(); else cancelSheet();
+    return;
+  }
   if (S.screen === 'studio') { if (S.selectMode || S.selection.size) { clearSelection(); } return; }
   doBack();
 });

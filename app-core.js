@@ -93,8 +93,8 @@ function loadRecipes() {
 const W = {
   main: null, thumbs: null, jobs: new Map(), jobSeq: 0,
   init() {
-    this.main = new Worker('worker.js?v=2');
-    this.thumbs = new Worker('worker.js?v=2');
+    this.main = new Worker('worker.js?v=3');
+    this.thumbs = new Worker('worker.js?v=3');
     this.main.onmessage = e => onMainWorker(e.data);
     this.thumbs.onmessage = e => this.route(e.data);
     this.exportW = null;
@@ -113,7 +113,7 @@ const W = {
       this.jobs.set(job, { resolve, reject, onThumb });
       let w = this.thumbs;
       if (target === 'export') {
-        if (!this.exportW) { this.exportW = new Worker('worker.js?v=2'); this.exportW.onmessage = e => this.route(e.data); }
+        if (!this.exportW) { this.exportW = new Worker('worker.js?v=3'); this.exportW.onmessage = e => this.route(e.data); }
         w = this.exportW;
       }
       w.postMessage(Object.assign({ job }, msg), transfer || []);
@@ -295,7 +295,7 @@ function bigValue(title, valueFn, changedFn, onNudge) {
   const v = h('div', { class: 'v' });
   const upd = () => { v.textContent = valueFn(); v.classList.toggle('changed', !!changedFn()); };
   upd(); live(upd);
-  return h('div', { class: 'big' }, h('div', { class: 't' }, title),
+  return h('div', { class: 'big' }, title ? h('div', { class: 't' }, title) : null,
     h('div', { class: 'row' },
       onNudge ? iconBtn('keyboard_arrow_left', 'One step less', () => onNudge(-1)) : null, v,
       onNudge ? iconBtn('keyboard_arrow_right', 'One step more', () => onNudge(1)) : null));

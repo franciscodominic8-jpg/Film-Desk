@@ -147,7 +147,7 @@ function bottomArea() {
     return h('div', { class: 'panel-scroll', 'data-keep': 'croptools' }, cropTools());
   }
   if (sh === 'film') return filmStrengthSheet();
-  if (sh.startsWith('q:')) return qSheet(sh.slice(2));
+  if (sh.startsWith('q:')) return qMenuPanel(); // the box opens inside the grid
   if (sh.startsWith('pro:')) return proSheet(sh.slice(4));
   return filmTab();
 }
@@ -294,12 +294,105 @@ function dialValue(d, p) {
     default: return M.effectiveDisplay(M.setting(d.settings[0]), p);
   }
 }
+const DIAL_HINTS = {
+  exp: '−3 … +3 EV, ⅓ steps', hl: '−2 soft … +4 hard', sh: '−2 soft … +4 hard', color: '−4 … +4', sharp: '−4 … +4', nr: '−4 … +4',
+  clarity: '−5 … +5', wb: 'preset · Kelvin · shift', wbs: 'preset · Kelvin · shift', mono: 'B&W films only', grain: 'roughness · size',
+  cc: 'deeper strong colours', ccb: 'richer blues', dr: 'highlight roll-off', drp: 'overrides DR, H, S', skin: 'softens skin texture',
+};
+/** Width of the panel the Q menu sits in, so the box can open under the right row. */
+function qCols() {
+  const aw = appEl().clientWidth, w = aw >= 600 ? (aw >= 840 ? 380 : 330) : aw;
+  return clamp(Math.floor((w - 16) / 68), 4, 8);
+}
+/**
+ * Fujifilm-style Q menu: a grid of round dials showing every setting. Tapping a dial opens its box
+ * right under that row (pointing at the dial); Done or tapping the dial again closes it.
+ */
 function qMenuPanel() {
-  const p = S.params;
+  const p = S.params, cols = qCols();
+  const openId = S.sheet && S.sheet.startsWith('q:') ? S.sheet.slice(2) : null;
+  const rows = [];
+  for (let i = 0; i < Q_DIALS.length; i += cols) {
+    const row = Q_DIALS.slice(i, i + cols);
+    rows.push(h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(' + cols + ', 1fr)' } }, row.map(d =>
+      valueDial(dialValue(d, p), d.label, dialChanged(d, p), () => d.id === openId ? doneSheet() : openSheet('q:' + d.id),
+        { dimmed: dialLock(d, p) != null, selected: d.id === openId }))));
+    const idx = row.findIndex(d => d.id === openId);
+    if (idx >= 0) rows.push(qBox(row[idx], idx, cols));
+  }
   return h('div', { class: 'panel-scroll', 'data-keep': 'qmenu', style: { padding: '8px 0' } },
     h('div', { class: 'row sec-head' }, h('div', { class: 'label grow' }, 'Q Menu'),
-      h('button', { class: 'text-btn', style: { fontSize: '11px' }, onclick: () => change(M.resetCamera(S.params)) }, 'Reset all')),
-    h('div', { class: 'dial-grid' }, Q_DIALS.map(d => valueDial(dialValue(d, p), d.label, dialChanged(d, p), () => openSheet('q:' + d.id), { dimmed: dialLock(d, p) != null }))));
+      h('button', { class: 'text-btn', style: { fontSize: '11px' }, onclick: () => { if (S.sheet) doneSheet(true); change(M.resetCamera(S.params)); } }, 'Reset all')),
+    h('div', { style: { padding: '0 8px 10px', display: 'flex', flexDirection: 'column', gap: '10px' } }, rows));
+}
+/** The option box under a row of dials, with a little pointer up to the open dial. */
+function qBox(d, col, cols) {
+  const p = S.params, lock = dialLock(d, p);
+  const title = d.id === 'sim' ? 'Film Simulation' : d.id === 'wbs' ? 'White Balance' : d.id === 'mono' ? 'Monochromatic Color' : d.label;
+  const pointer = h('canvas', { class: 'qbox-pointer', 'aria-hidden': 'true' });
+  requestAnimationFrame(() => {
+    const w = pointer.clientWidth, hh = 9, g = dprCanvas(pointer, w, hh + 2), cx = w * (col + 0.5) / cols;
+    g.fillStyle = '#17140E'; g.beginPath(); g.moveTo(cx - hh, hh + 2); g.lineTo(cx, 0); g.lineTo(cx + hh, hh + 2); g.closePath(); g.fill();
+    g.strokeStyle = C.amber; g.lineWidth = 1.5; g.beginPath(); g.moveTo(cx - hh, hh); g.lineTo(cx, 0.75); g.lineTo(cx + hh, hh); g.stroke();
+  });
+  const box = h('div', { class: 'qbox-wrap' }, pointer,
+    h('div', { class: 'qbox', role: 'group', 'aria-label': title },
+      h('div', { class: 'row' }, h('div', { class: 'grow', style: { fontSize: '15px', fontWeight: 700 } }, title),
+        h('div', { class: 'muted ellipsis' + (d.id === 'sim' ? ' mono' : ''), style: { fontSize: '11px' } }, d.id === 'sim' ? (p.sim + 1) + '/' + M.FILM_SIMS.length : (DIAL_HINTS[d.id] || ''))),
+      lock ? [h('div', { class: 'mono muted', style: { fontSize: '20px', fontWeight: 600 } }, dialValue(d, p)), h('div', { class: 'row lock' }, icon('lock'), h('span', null, lock))]
+        : qBoxContent(d),
+      h('div', { class: 'row' },
+        lock ? null : h('button', { class: 'text-btn', onclick: () => updateParams(resetDial(d, S.params)) }, 'Reset'),
+        h('div', { class: 'grow' }),
+        h('button', { class: 'btn primary', style: { height: '38px', padding: '0 20px' }, onclick: () => doneSheet() }, 'Done'))));
+  // Bring the box into view once it is on screen (only when it was just opened).
+  if (qBox.lastOpened !== d.id) { qBox.lastOpened = d.id; setTimeout(() => box.scrollIntoView({ block: 'nearest', behavior: 'smooth' }), 80); }
+  return box;
+}
+function qBoxContent(d) {
+  const p = S.params, up = o => updateParams(M.copy(S.params, o));
+  switch (d.id) {
+    case 'sim': {
+      const sim = M.FILM_SIMS[p.sim], pct = () => Math.round(S.params.simStrength * 100);
+      const val = h('span', { class: 'mono', style: { width: '44px', textAlign: 'right', fontSize: '13px', flex: 'none' } });
+      const upd = () => { val.textContent = pct() + '%'; val.style.color = pct() !== 100 ? C.amber : C.muted; };
+      upd(); live(upd);
+      const sl = tickSlider({ value: pct(), min: 0, max: 100, step: 1, origin: 100, description: 'Film strength', valueText: v => v + '%',
+        onChange: v => up({ simStrength: clamp(v, 0, 100) / 100 }), onEnd: refreshEditor });
+      live(() => sl.update(pct()));
+      return [h('div', null, h('div', { style: { fontSize: '18px', fontWeight: 700 } }, sim.name), h('div', { class: 'muted', style: { fontSize: '12px' } }, sim.description)),
+        h('div', { style: { margin: '0 -14px' } }, simStrip(i => up({ sim: i }))),
+        h('div', { class: 'row' }, h('span', { style: { width: '62px', fontSize: '12px', flex: 'none' } }, 'Strength'), h('div', { class: 'grow' }, sl), val)];
+    }
+    case 'grain': return choiceTiles(M.GRAIN_OPTIONS.map(s => s.replace(' · ', '\n')), p.grain, i => up({ grain: i }), { draw: grainTile });
+    case 'cc': return choiceTiles(M.CHROME_OPTIONS, p.colorChrome, i => up({ colorChrome: i }), { draw: (g, w, hh, i) => chromeTile(g, w, hh, i, '#FF7A2E', '#D9301F') });
+    case 'ccb': return choiceTiles(M.CHROME_OPTIONS, p.colorChromeBlue, i => up({ colorChromeBlue: i }), { draw: (g, w, hh, i) => chromeTile(g, w, hh, i, '#5AA8FF', '#1E5FD0') });
+    case 'dr': return choiceTiles(M.DR_OPTIONS, p.dynamicRange, i => up({ dynamicRange: i }), { draw: drTile });
+    case 'drp': return choiceTiles(M.DRP_OPTIONS, p.dRangePriority, i => up({ dRangePriority: i }), { text: i => ['OFF', 'W', 'S', 'AUTO'][i] });
+    case 'skin': return choiceTiles(M.SKIN_OPTIONS, p.smoothSkin, i => up({ smoothSkin: i }), { draw: skinTile });
+    case 'wb': case 'wbs': return whiteBalancePanel();
+    case 'mono': {
+      const wc = h('div', { class: 'mono', style: { fontSize: '14px' } }), mg = h('div', { class: 'mono', style: { fontSize: '14px' } });
+      const upd = () => {
+        wc.textContent = 'WC ' + M.signed(S.params.monoWC); wc.style.color = S.params.monoWC ? C.amber : C.text;
+        mg.textContent = 'MG ' + M.signed(S.params.monoMG); mg.style.color = S.params.monoMG ? C.amber : C.text;
+      };
+      upd(); live(upd);
+      return h('div', { class: 'row' },
+        h('div', { class: 'grow' }, shiftPad(() => [S.params.monoWC, S.params.monoMG], (x, y) => up({ monoWC: x, monoMG: y }),
+          { left: 'Cool', right: 'Warm', top: 'M', bottom: 'G', lc: '#6FA8FF', rc: '#FFA24D', tc: '#E05BD1', bc: '#5BD17A' }, 140)),
+        h('div', { style: { paddingLeft: '12px' } }, h('div', { class: 'label' }, 'B&W tone'), wc, mg));
+    }
+    default: {
+      const s = M.setting(d.settings[0]);
+      const shown = () => d.id === 'exp' ? expShort(S.params.exposureThirds) : s.format(S.params[s.key]);
+      const sl = tickSlider({ value: p[s.key], min: s.min, max: s.max, step: s.step, description: d.label, valueText: () => shown(),
+        minLabel: d.id === 'exp' ? '−3' : s.format(s.min), midLabel: '0', maxLabel: d.id === 'exp' ? '+3' : s.format(s.max),
+        onChange: v => up({ [s.key]: M.snap(s, v) }), onEnd: refreshEditor });
+      live(() => sl.update(S.params[s.key]));
+      return [bigValue('', shown, () => !M.settingIsDefault(s, S.params), k => up({ [s.key]: M.snap(s, S.params[s.key] + k * s.step) })), sl];
+    }
+  }
 }
 function resetDial(d, p) {
   const z = M.DEF;
@@ -310,44 +403,9 @@ function resetDial(d, p) {
   d.settings.forEach(id => { const s = M.setting(id); q[s.key] = z[s.key]; });
   return q;
 }
-function qSheet(id) {
-  const d = Q_DIALS.find(x => x.id === id);
-  if (!d) return qMenuPanel();
-  const p = S.params, lock = dialLock(d, p);
-  const up = o => updateParams(M.copy(S.params, o));
-  let content;
-  if (lock) {
-    content = [bigValue(d.label, () => dialValue(d, S.params), () => false), h('div', { class: 'row lock' }, icon('lock'), h('span', null, lock))];
-  } else switch (d.id) {
-    case 'sim': content = [bigValue('Film simulation', () => M.FILM_SIMS[S.params.sim].name, () => S.params.sim !== 0), simStrip(i => up({ sim: i }))]; break;
-    case 'grain': content = choiceTiles(d.label, M.GRAIN_OPTIONS.map(s => s.replace(' · ', '\n')), p.grain, i => up({ grain: i }), { draw: grainTile }); break;
-    case 'cc': content = choiceTiles(d.label, M.CHROME_OPTIONS, p.colorChrome, i => up({ colorChrome: i }), { draw: (g, w, hh, i) => chromeTile(g, w, hh, i, '#FF7A2E', '#D9301F') }); break;
-    case 'ccb': content = choiceTiles(d.label, M.CHROME_OPTIONS, p.colorChromeBlue, i => up({ colorChromeBlue: i }), { draw: (g, w, hh, i) => chromeTile(g, w, hh, i, '#5AA8FF', '#1E5FD0') }); break;
-    case 'dr': content = choiceTiles(d.label, M.DR_OPTIONS, p.dynamicRange, i => up({ dynamicRange: i }), { draw: drTile }); break;
-    case 'drp': content = choiceTiles(d.label, M.DRP_OPTIONS, p.dRangePriority, i => up({ dRangePriority: i }), { text: i => ['OFF', 'W', 'S', 'AUTO'][i] }); break;
-    case 'skin': content = choiceTiles(d.label, M.SKIN_OPTIONS, p.smoothSkin, i => up({ smoothSkin: i }), { draw: skinTile }); break;
-    case 'wb': case 'wbs': content = whiteBalancePanel(); break;
-    case 'mono':
-      content = [bigValue('Monochromatic color', () => 'WC ' + M.signed(S.params.monoWC) + '  MG ' + M.signed(S.params.monoMG), () => S.params.monoWC !== 0 || S.params.monoMG !== 0),
-        shiftPad(() => [S.params.monoWC, S.params.monoMG], (x, y) => up({ monoWC: x, monoMG: y }), { left: 'Cool', right: 'Warm', top: 'M', bottom: 'G', lc: '#6FA8FF', rc: '#FFA24D', tc: '#E05BD1', bc: '#5BD17A' }, 150)];
-      break;
-    default: {
-      const s = M.setting(d.settings[0]);
-      const shown = () => d.id === 'exp' ? expShort(S.params.exposureThirds) : s.format(S.params[s.key]);
-      const sl = tickSlider({ value: p[s.key], min: s.min, max: s.max, step: s.step, description: d.label, valueText: () => shown(),
-        minLabel: d.id === 'exp' ? '−3' : s.format(s.min), midLabel: '0', maxLabel: d.id === 'exp' ? '+3' : s.format(s.max),
-        onChange: v => up({ [s.key]: M.snap(s, v) }), onEnd: refreshEditor });
-      live(() => sl.update(S.params[s.key]));
-      content = [bigValue(d.label, shown, () => !M.settingIsDefault(s, S.params), k => up({ [s.key]: M.snap(s, S.params[s.key] + k * s.step) })), sl,
-        h('div', { class: 'muted', style: { fontSize: '11px', paddingTop: '2px' } }, s.hint)];
-    }
-  }
-  return optionPanel(content, { onCancel: cancelSheet, onReset: lock ? null : () => updateParams(resetDial(d, S.params)), onDone: () => doneSheet() });
-}
-function choiceTiles(title, labels, selected, onPick, opts) {
-  return [bigValue(title, () => labels[clamp(selected, 0, labels.length - 1)].replace('\n', ' '), () => selected !== 0),
-    h('div', { class: 'scroll-x' }, h('div', { class: 'tiles' }, labels.map((l, i) => picTile(l, i === selected, () => onPick(i),
-      { text: opts.text ? opts.text(i) : null, draw: opts.draw ? (g, w, hh) => opts.draw(g, w, hh, i) : null }))))];
+function choiceTiles(labels, selected, onPick, opts) {
+  return h('div', { class: 'scroll-x' }, h('div', { class: 'tiles' }, labels.map((l, i) => picTile(l, i === selected, () => onPick(i),
+    { text: opts.text ? opts.text(i) : null, draw: opts.draw ? (g, w, hh) => opts.draw(g, w, hh, i) : null }))));
 }
 function grainTile(g, w, hh, i) {
   g.fillStyle = '#7A7A78'; g.fillRect(0, 0, w, hh);
@@ -392,7 +450,7 @@ function whiteBalancePanel() {
   const p = S.params, preset = M.WB_PRESETS[p.wb];
   const up = o => updateParams(M.copy(S.params, o));
   const out = [
-    bigValue('White balance', () => M.WB_PRESETS[S.params.wb].type === 'CUSTOM' ? S.params.kelvin + 'K' : M.WB_PRESETS[S.params.wb].label, () => S.params.wb !== 0,
+    bigValue('', () => M.WB_PRESETS[S.params.wb].type === 'CUSTOM' ? S.params.kelvin + 'K' : M.WB_PRESETS[S.params.wb].label, () => S.params.wb !== 0,
       preset.type === 'CUSTOM' ? k => up({ kelvin: clamp(S.params.kelvin + k * 100, 2500, 10000) }) : null),
     h('div', { class: 'scroll-x', 'data-keep': 'wbpresets' }, h('div', { class: 'row', style: { gap: '2px' } }, M.WB_PRESETS.map((w, i) => {
       const short = { AS_SHOT: 'SHOT', AUTO: 'AUTO', CUSTOM: 'K', UNDERWATER: 'UW' }[w.type] || WB_SHORT[w.label] || w.label.slice(0, 3);
