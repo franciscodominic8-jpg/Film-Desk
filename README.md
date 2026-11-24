@@ -54,9 +54,7 @@ capped by the device's available memory so low-end phones don't crash.
 - Crops are centred; free crop handles, masks and healing are not built yet.
 - "Provia", "Velvia", "Classic Chrome" etc. are Fujifilm trademarks — rename them before publishing.
 
-## License
-
-Free for personal and noncommercial use under the [PolyForm Noncommercial License 1.0.0](LICENSE): you may read, use, change and share the code, but **not sell it or use it in anything commercial** without written permission.
+## Notes
 
 "Fujifilm", "Provia", "Velvia", "Classic Chrome" and the other film simulation names are trademarks of FUJIFILM Corporation and are not covered by this license. This project is not affiliated with Fujifilm.
 
