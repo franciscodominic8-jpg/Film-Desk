@@ -53,3 +53,7 @@ capped by the device's available memory so low-end phones don't crash.
 - Reading the recipe stored inside Fujifilm camera JPEGs (maker notes) isn't implemented yet.
 - Crops are centred; free crop handles, masks and healing are not built yet.
 - "Provia", "Velvia", "Classic Chrome" etc. are Fujifilm trademarks — rename them before publishing.
+
+## License
+
+Source-available, **all rights reserved**. You may view this code, but you may not use, copy, modify or distribute it without written permission. See [LICENSE](LICENSE).

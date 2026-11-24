@@ -1,0 +1,32 @@
+Film Desk — Source-Available, All Rights Reserved
+
+Copyright (c) 2026 the owner of https://github.com/julian-ymo/Film-Desk.
+All rights reserved.
+
+This source code and the files in this repository (the "Software") are made
+publicly visible for viewing and reference only. This is NOT an open-source
+license.
+
+You MAY:
+  - view and read the Software on GitHub.
+
+You MAY NOT, without prior written permission from the copyright holder:
+  - use, run, build or install the Software or any part of it, except for
+    builds published by the copyright holder;
+  - copy, modify, adapt, translate or create derivative works of it;
+  - distribute, publish, sublicense, sell or otherwise share it or any
+    modified version of it, in source or compiled form;
+  - include any part of it in another project, product or service.
+
+Forks created through GitHub's own fork feature are allowed only to the
+extent required by GitHub's Terms of Service; they grant no further rights.
+
+No rights or licenses are granted except as stated above, whether by
+implication, estoppel or otherwise.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED. IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM,
+DAMAGES OR OTHER LIABILITY ARISING FROM THE SOFTWARE OR ITS USE.
+
+Third-party libraries used by the Software (such as Kotlin, Jetpack Compose and
+AndroidX) remain under their own licenses.
