@@ -1,21 +1,25 @@
-MIT License
+Required Notice: Copyright (c) 2026 the owner of https://github.com/julian-ymo/Film-Desk
 
-Copyright (c) 2026 the owner of https://github.com/julian-ymo/Film-Desk
+Film Desk is free for personal and other noncommercial use under the
+PolyForm Noncommercial License 1.0.0:
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+  https://polyformproject.org/licenses/noncommercial/1.0.0
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+Those terms (SPDX identifier: PolyForm-Noncommercial-1.0.0) are the license for
+this software and are incorporated here by reference.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+In short:
+  - You MAY read, use, copy, change and share this code for noncommercial
+    purposes: personal use, study, hobby projects, research, and use by
+    charities, schools and similar noncommercial organisations.
+  - You MAY NOT sell it, or use it (or a changed version of it) in a paid app,
+    product or service, or for any other commercial purpose.
+  - Anyone you give a copy to must also get these terms (or their URL) and the
+    "Required Notice" line above.
+  - The software is provided as is, with no warranty.
+
+Commercial use, including selling the app or a modified version, needs separate
+written permission from the copyright holder.
+
+Third-party libraries used by Film Desk (such as Kotlin, Jetpack Compose and
+AndroidX) remain under their own licenses.

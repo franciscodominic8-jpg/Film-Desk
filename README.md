@@ -56,7 +56,7 @@ capped by the device's available memory so low-end phones don't crash.
 
 ## License
 
-Open source under the [MIT License](LICENSE): you may use, copy, modify and share this code, including in your own projects, as long as you keep the copyright notice.
+Free for personal and noncommercial use under the [PolyForm Noncommercial License 1.0.0](LICENSE): you may read, use, change and share the code, but **not sell it or use it in anything commercial** without written permission.
 
 "Fujifilm", "Provia", "Velvia", "Classic Chrome" and the other film simulation names are trademarks of FUJIFILM Corporation and are not covered by this license. This project is not affiliated with Fujifilm.
 
