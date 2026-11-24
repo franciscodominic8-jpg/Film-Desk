@@ -105,7 +105,8 @@ private val Q_DIALS = listOf(
 
 private fun setting(id: String): QSetting = Q_SETTINGS.first { it.id == id }
 
-private fun dialChanged(d: QDial, p: EditParams): Boolean = d.settings.any { !setting(it).isDefault(p) }
+private fun dialChanged(d: QDial, p: EditParams): Boolean =
+    d.settings.any { !setting(it).isDefault(p) } || (d.id == "sim" && p.simStrength != 1f)
 
 private fun dialLock(d: QDial, p: EditParams): String? = setting(d.settings.first()).lockReason(p)
 
@@ -180,6 +181,13 @@ private val BOX_BG = Color(0xFF17140E)
 fun QMenuPanel(vm: EditorViewModel) {
     val p = vm.params
     val openId = vm.sheet?.takeIf { it.startsWith("q:") }?.removePrefix("q:")
+    val requester = remember { BringIntoViewRequester() }
+    LaunchedEffect(openId) {
+        if (openId != null) {
+            delay(80) // let the box appear first
+            requester.bringIntoView() // the tapped row and its box, together
+        }
+    }
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(vertical = 8.dp)) {
         Row(Modifier.padding(horizontal = 16.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("Q MENU", color = FD.Muted, fontSize = 10.sp, fontFamily = FD.Mono, letterSpacing = 1.5.sp, modifier = Modifier.weight(1f))
@@ -194,6 +202,8 @@ fun QMenuPanel(vm: EditorViewModel) {
             val cols = (maxWidth / 68.dp).toInt().coerceIn(4, 8)
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Q_DIALS.chunked(cols).forEach { row ->
+                    val idx = row.indexOfFirst { it.id == openId }
+                    Column(if (idx >= 0) Modifier.bringIntoViewRequester(requester) else Modifier) {
                     Row(Modifier.fillMaxWidth()) {
                         row.forEach { d ->
                             val lock = dialLock(d, p)
@@ -210,8 +220,8 @@ fun QMenuPanel(vm: EditorViewModel) {
                         }
                         repeat(cols - row.size) { Spacer(Modifier.weight(1f)) }
                     }
-                    val idx = row.indexOfFirst { it.id == openId }
                     if (idx >= 0) QBox(vm, row[idx], idx, cols)
+                    }
                 }
             }
         }
@@ -222,15 +232,10 @@ fun QMenuPanel(vm: EditorViewModel) {
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun QBox(vm: EditorViewModel, d: QDial, col: Int, cols: Int) {
-    val requester = remember { BringIntoViewRequester() }
-    LaunchedEffect(d.id) {
-        delay(80) // let the box appear first
-        requester.bringIntoView()
-    }
     val p = vm.params
     val lock = dialLock(d, p)
     val shape = RoundedCornerShape(14.dp)
-    Column(Modifier.fillMaxWidth().bringIntoViewRequester(requester)) {
+    Column(Modifier.fillMaxWidth().padding(top = 4.dp)) {
         Canvas(Modifier.fillMaxWidth().height(9.dp).offset(y = 1.5.dp).zIndex(1f)) {
             val cx = size.width * (col + 0.5f) / cols
             val h = size.height
@@ -246,14 +251,23 @@ private fun QBox(vm: EditorViewModel, d: QDial, col: Int, cols: Int) {
                 .clip(shape)
                 .background(BOX_BG)
                 .border(1.5.dp, FD.Amber, shape)
-                .padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 6.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+                .padding(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 2.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    if (d.id == "sim") "Film Simulation" else if (d.id == "wbs") "White Balance" else if (d.id == "mono") "Monochromatic Color" else d.label,
-                    color = FD.Text, fontSize = 15.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f),
-                )
+                if (d.id == "sim") {
+                    Text("FILM SIMULATION", color = FD.Muted, fontSize = 10.sp, fontFamily = FD.Mono, letterSpacing = 1.sp)
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        FILM_SIMS[p.sim].name, color = FD.Text, fontSize = 16.sp, fontWeight = FontWeight.Bold,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
+                    )
+                } else {
+                    Text(
+                        if (d.id == "wbs") "White Balance" else if (d.id == "mono") "Monochromatic Color" else d.label,
+                        color = FD.Text, fontSize = 15.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f),
+                    )
+                }
                 Text(
                     if (d.id == "sim") "${p.sim + 1}/${FILM_SIMS.size}" else dialHint(d),
                     color = FD.Muted, fontSize = 11.sp, fontFamily = if (d.id == "sim") FD.Mono else null,
@@ -270,7 +284,7 @@ private fun QBox(vm: EditorViewModel, d: QDial, col: Int, cols: Int) {
             } else {
                 QBoxContent(vm, d)
             }
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().height(44.dp)) {
                 if (lock == null) {
                     TextButton(onClick = { vm.updateParams(resetDial(d, vm.params)) }) { Text("Reset", color = FD.Muted) }
                 }
@@ -278,7 +292,8 @@ private fun QBox(vm: EditorViewModel, d: QDial, col: Int, cols: Int) {
                 Button(
                     onClick = vm::doneSheet,
                     colors = ButtonDefaults.buttonColors(containerColor = FD.Amber, contentColor = FD.OnAmber),
-                    modifier = Modifier.height(38.dp),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 20.dp),
+                    modifier = Modifier.height(36.dp),
                 ) { Text("Done", fontWeight = FontWeight.SemiBold) }
             }
         }
@@ -292,11 +307,7 @@ private fun QBoxContent(vm: EditorViewModel, d: QDial) {
     val p = vm.params
     when (d.id) {
         "sim" -> {
-            val sim = FILM_SIMS[p.sim]
-            Column {
-                Text(sim.name, color = FD.Text, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                Text(sim.description, color = FD.Muted, fontSize = 12.sp)
-            }
+            Text(FILM_SIMS[p.sim].description, color = FD.Muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             SimStrip(vm, onPick = { vm.updateParams(vm.params.copy(sim = it)) })
             val pct = (p.simStrength * 100).roundToInt()
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -332,7 +343,7 @@ private fun QBoxContent(vm: EditorViewModel, d: QDial) {
                     onChange = { x, y -> vm.updateParams(vm.params.copy(monoWC = x, monoMG = y)) },
                     left = "Cool", right = "Warm", top = "M", bottom = "G",
                     leftColor = Color(0xFF6FA8FF), rightColor = Color(0xFFFFA24D), topColor = Color(0xFFE05BD1), bottomColor = Color(0xFF5BD17A),
-                    modifier = Modifier.weight(1f), padSize = 140.dp,
+                    modifier = Modifier.weight(1f), padSize = 120.dp,
                 )
                 Column(Modifier.padding(start = 12.dp)) {
                     Text("B&W TONE", color = FD.Muted, fontSize = 10.sp, fontFamily = FD.Mono, letterSpacing = 1.5.sp)
@@ -366,6 +377,7 @@ private fun resetDial(d: QDial, p: EditParams): EditParams {
         "wb" -> p.copy(wb = z.wb, kelvin = z.kelvin, wbShiftR = z.wbShiftR, wbShiftB = z.wbShiftB)
         "wbs" -> p.copy(wbShiftR = z.wbShiftR, wbShiftB = z.wbShiftB)
         "mono" -> p.copy(monoWC = 0, monoMG = 0)
+        "sim" -> p.copy(sim = z.sim, simStrength = z.simStrength)
         else -> {
             var q = p
             d.settings.forEach { id ->
@@ -453,12 +465,11 @@ private fun DrawScope.skinTile(i: Int) {
 private fun WhiteBalancePanel(vm: EditorViewModel) {
     val p = vm.params
     val preset = WB_PRESETS[p.wb.coerceIn(0, WB_PRESETS.lastIndex)]
-    BigValue(
-        "", if (preset.type == WbType.CUSTOM) "${p.kelvin}K" else preset.label, p.wb != 0,
-        onNudge = if (preset.type == WbType.CUSTOM) ({ k ->
+    if (preset.type == WbType.CUSTOM) {
+        BigValue("", "${p.kelvin}K", true, onNudge = { k ->
             vm.updateParams(vm.params.copy(kelvin = (vm.params.kelvin + k * 100).coerceIn(2500, 10000)))
-        }) else null,
-    )
+        })
+    }
     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
         WB_PRESETS.forEachIndexed { i, w ->
             val short = when (w.type) {
@@ -490,7 +501,7 @@ private fun WhiteBalancePanel(vm: EditorViewModel) {
             left = "C", right = "R", top = "B", bottom = "Y",
             leftColor = Color(0xFF4FD1D9), rightColor = Color(0xFFFF5A5A), topColor = Color(0xFF5A8CFF), bottomColor = Color(0xFFFFD24D),
             modifier = Modifier.weight(1f),
-            padSize = 140.dp,
+            padSize = 120.dp,
         )
         Column(Modifier.padding(start = 12.dp)) {
             Text("WB SHIFT", color = FD.Muted, fontSize = 10.sp, fontFamily = FD.Mono, letterSpacing = 1.5.sp)

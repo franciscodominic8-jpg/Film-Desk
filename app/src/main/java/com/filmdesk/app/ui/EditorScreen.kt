@@ -139,6 +139,9 @@ private fun BottomArea(vm: EditorViewModel, modifier: Modifier) {
     Box(modifier, contentAlignment = Alignment.BottomCenter) {
         val sheet = vm.sheet
         when {
+            // Q Menu boxes open inside the grid: same call site with or without a box,
+            // so the grid keeps its scroll position.
+            vm.tab == EditorTab.QMenu && (sheet == null || sheet.startsWith("q:")) -> QMenuPanel(vm)
             sheet == null -> when (vm.tab) {
                 EditorTab.Film -> FilmTab(vm)
                 EditorTab.QMenu -> QMenuPanel(vm)
@@ -146,7 +149,6 @@ private fun BottomArea(vm: EditorViewModel, modifier: Modifier) {
                 EditorTab.Crop -> Column(Modifier.verticalScroll(rememberScrollState())) { CropTools(vm) }
             }
             sheet == "film" -> FilmStrengthSheet(vm)
-            sheet.startsWith("q:") -> QMenuPanel(vm) // the box opens inside the grid
             sheet.startsWith("pro:") -> ProSheet(vm, sheet.removePrefix("pro:"))
             else -> FilmTab(vm)
         }
