@@ -12,7 +12,6 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.horizontalDrag
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.setProgress
@@ -67,10 +66,10 @@ import kotlin.math.roundToInt
 /**
  * VSCO-style slider: thin track with tick marks, a mark at the "no change" point, an amber
  * fill from there to the value and a white knob.
- *  - Only a sideways drag changes it (a touch or an up/down swipe scrolls the panel instead),
- *    and the value moves with your finger from where it was, so it never jumps.
- *  - Long ranges move at half speed for finer control; ‹ › next to the value nudge one step.
- *  - Double-tap goes back to [origin].
+ *  - Drag sideways: the knob moves exactly with your finger, wherever you start the drag.
+ *    An up/down swipe scrolls the panel instead, so scrolling never changes a value.
+ *  - Tap the track to jump there; ‹ › next to the value nudge one step.
+ *  - Double-tap goes back to [resetTo] (the default).
  */
 @Composable
 fun TickSlider(
@@ -87,13 +86,13 @@ fun TickSlider(
     color: Color = FD.Amber,
     description: String = "",
     valueText: String? = null,
+    resetTo: Float = origin,
 ) {
     val cb by rememberUpdatedState(onChange)
     val current by rememberUpdatedState(value)
+    val reset by rememberUpdatedState(resetTo)
     val stepsTotal = ((max - min) / step).roundToInt().coerceAtLeast(1)
     val ticks = if (stepsTotal <= 24) stepsTotal else 20
-    // Big ranges (e.g. −100…+100): a full-width drag covers half the range.
-    val speed = if (stepsTotal > 60) 0.5f else 1f
     fun snap(v: Float): Float = (min + ((v - min) / step).roundToInt() * step).coerceIn(min, max)
     Column(modifier.fillMaxWidth()) {
         Canvas(
@@ -106,8 +105,13 @@ fun TickSlider(
                     progressBarRangeInfo = ProgressBarRangeInfo(value, min..max, (stepsTotal - 1).coerceAtLeast(0))
                     setProgress { target -> cb(snap(target)); true }
                 }
-                .pointerInput(min, max, step, origin) {
-                    detectTapGestures(onDoubleTap = { cb(origin) })
+                .pointerInput(min, max, step) {
+                    val pad = 14.dp.toPx()
+                    fun at(x: Float): Float = min + ((x - pad) / (size.width - 2 * pad).coerceAtLeast(1f)).coerceIn(0f, 1f) * (max - min)
+                    detectTapGestures(
+                        onTap = { pos -> cb(snap(at(pos.x))) },
+                        onDoubleTap = { cb(snap(reset)) },
+                    )
                 }
                 .pointerInput(min, max, step) {
                     val pad = 14.dp.toPx()
@@ -116,14 +120,15 @@ fun TickSlider(
                         val start = current
                         var dx = 0f
                         val w = (size.width - 2 * pad).coerceAtLeast(1f)
-                        fun apply() { cb(snap(start + dx / w * (max - min) * speed)) }
+                        // 1:1 with the finger: moving the full track width covers the full range.
+                        fun apply() { cb(snap(start + dx / w * (max - min))) }
                         val drag = awaitHorizontalTouchSlopOrCancellation(down.id) { change, over ->
-                            change.consume(); dx += over
+                            change.consume(); dx = change.position.x - down.position.x
                         }
                         if (drag != null) {
                             apply()
                             horizontalDrag(drag.id) { ch ->
-                                dx += ch.positionChange().x
+                                dx = ch.position.x - down.position.x
                                 ch.consume()
                                 apply()
                             }

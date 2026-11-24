@@ -17,7 +17,6 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.awaitHorizontalTouchSlopOrCancellation
 import androidx.compose.foundation.gestures.horizontalDrag
-import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.setProgress
@@ -412,7 +411,14 @@ private fun ThinSlider(value: Int, range: IntRange, default: Int, color: Color, 
                 setProgress { t -> cb(t.roundToInt().coerceIn(range.first, range.last)); done(); true }
             }
             .pointerInput(range, default) {
-                detectTapGestures(onDoubleTap = { cb(default); done() })
+                val pad = 9.dp.toPx()
+                detectTapGestures(
+                    onTap = { pos ->
+                        val f = ((pos.x - pad) / (size.width - 2 * pad).coerceAtLeast(1f)).coerceIn(0f, 1f)
+                        cb((range.first + f * (range.last - range.first)).roundToInt()); done()
+                    },
+                    onDoubleTap = { cb(default); done() },
+                )
             }
             .pointerInput(range) {
                 val pad = 9.dp.toPx()
@@ -424,10 +430,10 @@ private fun ThinSlider(value: Int, range: IntRange, default: Int, color: Color, 
                     fun apply() {
                         cb((start + dx / w * (range.last - range.first)).roundToInt().coerceIn(range.first, range.last))
                     }
-                    val drag = awaitHorizontalTouchSlopOrCancellation(down.id) { ch, over -> ch.consume(); dx += over }
+                    val drag = awaitHorizontalTouchSlopOrCancellation(down.id) { ch, _ -> ch.consume(); dx = ch.position.x - down.position.x }
                     if (drag != null) {
                         apply()
-                        horizontalDrag(drag.id) { ch -> dx += ch.positionChange().x; ch.consume(); apply() }
+                        horizontalDrag(drag.id) { ch -> dx = ch.position.x - down.position.x; ch.consume(); apply() }
                         done()
                     }
                 }

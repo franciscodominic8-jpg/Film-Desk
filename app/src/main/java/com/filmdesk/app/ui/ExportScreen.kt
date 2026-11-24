@@ -270,7 +270,7 @@ fun ExportScreen(vm: EditorViewModel) {
                             TickSlider(
                                 s.quality.toFloat(), 10f, 100f, 1f,
                                 onChange = { v -> set { it.copy(quality = v.roundToInt()) } },
-                                origin = 10f, minLabel = "10", maxLabel = "100", description = "Quality", valueText = s.quality.toString(),
+                                origin = 10f, resetTo = ExportSettings().quality.toFloat(), minLabel = "10", maxLabel = "100", description = "Quality", valueText = s.quality.toString(),
                             )
                         }
                         if (s.canLimitSize) {
@@ -414,14 +414,8 @@ fun ExportScreen(vm: EditorViewModel) {
                                 }
                                 PositionGrid(s.wmPos) { i -> set { it.copy(wmPos = i) } }
                             }
-                            LabeledSlider(
-                                label = "Size", value = s.wmSize.toFloat(), range = 2f..12f, steps = 9, display = "${s.wmSize}%",
-                                changed = true, onChange = { v -> set { it.copy(wmSize = v.roundToInt()) } }, onDone = {},
-                            )
-                            LabeledSlider(
-                                label = "Opacity", value = s.wmOpacity.toFloat(), range = 10f..100f, display = "${s.wmOpacity}%",
-                                changed = true, onChange = { v -> set { it.copy(wmOpacity = v.roundToInt()) } }, onDone = {},
-                            )
+                            WmSlider("Size", s.wmSize, 2, 12, ExportSettings().wmSize) { v -> set { it.copy(wmSize = v) } }
+                            WmSlider("Opacity", s.wmOpacity, 10, 100, ExportSettings().wmOpacity) { v -> set { it.copy(wmOpacity = v) } }
                             ChipRow(WATERMARK_COLORS, s.wmColor) { i -> set { it.copy(wmColor = i) } }
                         }
             
@@ -550,6 +544,21 @@ private fun sizeSummary(s: ExportSettings): String = when (s.sizeMode) {
     SizeMode.ShortEdge -> "Short edge · ${s.shortEdge} px"
     SizeMode.Megapixels -> "${s.megapixels} MP"
     SizeMode.Percent -> "${s.percent}%"
+}
+
+/** Watermark size / opacity slider in the same style as the rest of the app. */
+@Composable
+private fun WmSlider(label: String, value: Int, min: Int, max: Int, default: Int, onChange: (Int) -> Unit) {
+    Column {
+        Row(Modifier.padding(horizontal = 4.dp)) {
+            Text(label, color = FD.Text, fontSize = 14.sp, modifier = Modifier.weight(1f))
+            Text("$value%", color = if (value != default) FD.Amber else FD.Muted, fontFamily = FD.Mono, fontSize = 13.sp)
+        }
+        TickSlider(
+            value.toFloat(), min.toFloat(), max.toFloat(), 1f, onChange = { onChange(it.roundToInt()) },
+            origin = min.toFloat(), resetTo = default.toFloat(), description = "Watermark $label", valueText = "$value%",
+        )
+    }
 }
 
 /** One line of the export list: name on the left, current value and › on the right. */
