@@ -36,6 +36,16 @@ input, textarea { font: inherit; color: var(--text); }
 .scroll-y { overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
 .scroll-x { overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain; }
 .scroll-x::-webkit-scrollbar { display: none; }
+@media (pointer: fine) {
+  /* Computers: a slim scrollbar on sideways rows, and the hand cursor shows they can be dragged. */
+  .scroll-x { scrollbar-width: thin; scrollbar-color: #3A3C40 transparent; padding-bottom: 4px; cursor: grab; }
+  .scroll-x::-webkit-scrollbar { display: block; height: 6px; }
+  .scroll-x::-webkit-scrollbar-thumb { background: #3A3C40; border-radius: 3px; }
+  .scroll-x.dragging { cursor: grabbing; }
+  .scroll-x.dragging * { pointer-events: none; }
+  .scroll-y { scrollbar-width: thin; scrollbar-color: #3A3C40 transparent; }
+  .panel-scroll, .opt-body { scrollbar-width: thin; scrollbar-color: #3A3C40 transparent; }
+}
 .ellipsis { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .icon-btn { width: 44px; height: 44px; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; color: var(--text); flex: none; }
 .icon-btn:hover:not(:disabled) { background: rgba(255,255,255,.06); }
@@ -283,14 +293,14 @@ textarea.field { min-height: 120px; resize: vertical; font: 12px var(--mono); }
 <div id="app"></div>
 <input id="file" type="file" accept="image/*" multiple hidden>
 <noscript><p style="padding:24px">Film Desk needs JavaScript.</p></noscript>
-<script src="model.js?v=6"></script>
-<script src="engine.js?v=6"></script>
-<script src="files.js?v=6"></script>
-<script src="raw.js?v=6"></script>
-<script src="app-core.js?v=6"></script>
-<script src="app-vm.js?v=6"></script>
-<script src="app-ui.js?v=6"></script>
-<script src="app-curvecrop.js?v=6"></script>
-<script src="app-pages.js?v=6"></script>
+<script src="model.js?v=7"></script>
+<script src="engine.js?v=7"></script>
+<script src="files.js?v=7"></script>
+<script src="raw.js?v=7"></script>
+<script src="app-core.js?v=7"></script>
+<script src="app-vm.js?v=7"></script>
+<script src="app-ui.js?v=7"></script>
+<script src="app-curvecrop.js?v=7"></script>
+<script src="app-pages.js?v=7"></script>
 </body>
 </html>

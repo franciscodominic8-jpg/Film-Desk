@@ -1,11 +1,11 @@
 /* Film Desk web — offline support. Keeps a copy of the app so it opens without internet.
  * Photos are never sent anywhere; they stay in the browser's own storage. */
 'use strict';
-const CACHE = 'filmdesk-v8';
+const CACHE = 'filmdesk-v9';
 const FILES = [
   './', 'index.html', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png', 'material-icons.woff',
-  'model.js?v=6', 'engine.js?v=6', 'files.js?v=6', 'raw.js?v=6', 'libraw.wasm?v=1', 'worker.js?v=6',
-  'app-core.js?v=6', 'app-vm.js?v=6', 'app-ui.js?v=6', 'app-curvecrop.js?v=6', 'app-pages.js?v=6',
+  'model.js?v=7', 'engine.js?v=7', 'files.js?v=7', 'raw.js?v=7', 'libraw.wasm?v=1', 'worker.js?v=7',
+  'app-core.js?v=7', 'app-vm.js?v=7', 'app-ui.js?v=7', 'app-curvecrop.js?v=7', 'app-pages.js?v=7',
 ];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)).then(() => self.skipWaiting()));

@@ -20,7 +20,11 @@ function render() {
   root.querySelectorAll('[data-keep]').forEach(el => {
     const k = keep[el.dataset.keep];
     if (k) { el.scrollLeft = k[0]; el.scrollTop = k[1]; }
-    else if (el.dataset.scrollto) { const t = el.querySelector(el.dataset.scrollto); if (t) el.scrollLeft = Math.max(0, t.offsetLeft - 80); }
+    else if (el.dataset.scrollto) {
+      // Show the selected item near the start of the row (measured inside the row, not the page).
+      const t = el.querySelector(el.dataset.scrollto);
+      if (t) el.scrollLeft = Math.max(0, t.getBoundingClientRect().left - el.getBoundingClientRect().left + el.scrollLeft - 80);
+    }
   });
   if (S.screen === 'editor') { drawPreview(); drawCrop(); drawGraph(); }
 }

@@ -303,6 +303,43 @@ async function boot() {
     if (mod && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); }
     else if (mod && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); }
   });
+  // Sideways rows (film strip, WB presets, ratios, guides, presets) with a mouse:
+  // the wheel scrolls them left/right, and they can be dragged like a swipe.
+  document.addEventListener('wheel', e => {
+    const row = e.target.closest && e.target.closest('.scroll-x');
+    if (!row || e.ctrlKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
+    const max = row.scrollWidth - row.clientWidth;
+    if (max <= 1) return;
+    const next = clamp(row.scrollLeft + e.deltaY, 0, max);
+    if (next === row.scrollLeft) return; // at the end: let the page/panel scroll instead
+    e.preventDefault();
+    row.scrollLeft = next;
+  }, { passive: false });
+  let rowDrag = null;
+  document.addEventListener('pointerdown', e => {
+    if (e.pointerType !== 'mouse' || e.button !== 0) return;
+    const row = e.target.closest && e.target.closest('.scroll-x');
+    if (!row || row.scrollWidth <= row.clientWidth + 1 || e.target.closest('canvas.tick, .tick canvas, input')) return;
+    rowDrag = { row, x: e.clientX, left: row.scrollLeft, moved: false };
+  });
+  document.addEventListener('pointermove', e => {
+    if (!rowDrag) return;
+    const dx = e.clientX - rowDrag.x;
+    if (!rowDrag.moved && Math.abs(dx) < 5) return;
+    rowDrag.moved = true;
+    rowDrag.row.classList.add('dragging');
+    rowDrag.row.scrollLeft = rowDrag.left - dx;
+  });
+  document.addEventListener('pointerup', () => {
+    if (rowDrag && rowDrag.moved) {
+      // A drag is not a tap: swallow the click that follows.
+      const stop = ev => { ev.stopPropagation(); ev.preventDefault(); };
+      window.addEventListener('click', stop, { capture: true, once: true });
+      setTimeout(() => window.removeEventListener('click', stop, { capture: true }), 50);
+      rowDrag.row.classList.remove('dragging');
+    }
+    rowDrag = null;
+  });
   let rt = 0;
   window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { if (S.screen === 'editor' && !S.dragging) render(); }, 120); });
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
