@@ -2,6 +2,8 @@
 'use strict';
 
 const appEl = () => document.getElementById('app');
+/** Width of the editor's tool panel on computers and tablets: wider on bigger screens. */
+function sidePanelWidth(w = appEl().clientWidth) { return w >= 1440 ? 440 : w >= 1100 ? 400 : w >= 840 ? 380 : 330; }
 const EL = { preview: null, orig: null, cropPhoto: null, cropOverlay: null };
 
 /** Rebuilds the current screen, keeping the scroll position of anything marked data-keep. */
@@ -127,7 +129,7 @@ function renderEditor() {
     S.tab === 'Crop' ? cropView() : previewArea());
   if (wide) {
     main.append(editorTabs());
-    const pw = appEl().clientWidth >= 840 ? 380 : 330;
+    const pw = sidePanelWidth();
     scr.append(main, h('div', { class: 'ed-side', style: { width: pw + 'px' } }, h('div', { style: { height: '48px', flex: 'none' } }),
       h('div', { class: 'bottom', style: { flex: '1 1 auto', minHeight: 0, justifyContent: 'flex-start' } }, bottomArea())));
   } else {
@@ -306,7 +308,7 @@ const DIAL_HINTS = {
 };
 /** Width of the panel the Q menu sits in, so the box can open under the right row. */
 function qCols() {
-  const aw = appEl().clientWidth, w = aw >= 600 ? (aw >= 840 ? 380 : 330) : aw;
+  const aw = appEl().clientWidth, w = aw >= 600 ? sidePanelWidth(aw) : aw;
   return clamp(Math.floor((w - 16) / 68), 4, 8);
 }
 /**
