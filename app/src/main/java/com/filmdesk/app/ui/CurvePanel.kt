@@ -133,13 +133,13 @@ fun CurveScreen(vm: EditorViewModel) {
         // Same photo height as the normal editor (top bar, tool panel and tab bar taken off).
         val photoH = (maxHeight - 48.dp - maxHeight * PANEL_FRACTION - 54.dp).coerceAtLeast(150.dp)
         val graphH = (maxHeight - 48.dp - photoH - 52.dp).coerceIn(170.dp, 420.dp)
+        val panelW = (maxWidth * 0.4f).coerceIn(340.dp, 440.dp)
+        val wideGraphH = (maxHeight * 0.3f).coerceIn(170.dp, 280.dp)
         Column(Modifier.fillMaxSize()) {
             CurveTopBar(vm)
             if (wide) {
                 // Unfolded: the photo takes the whole left side; graph, Edit and Soft Clip
                 // sit in a panel on the right (graph on top, kept compact).
-                val panelW = (maxWidth * 0.4f).coerceIn(340.dp, 440.dp)
-                val wideGraphH = (maxHeight * 0.3f).coerceIn(170.dp, 280.dp)
                 Row(Modifier.fillMaxSize()) {
                     PreviewArea(vm, Modifier.weight(1f).fillMaxHeight())
                     Column(
