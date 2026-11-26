@@ -26,10 +26,10 @@ function renderCurveScreen() {
   const hint = () => h('div', { class: 'muted', style: { fontSize: '11px', padding: '10px 14px 16px' } }, 'Click the graph to add points · drag to move · double-click to delete');
   const bodyH = H0 - 48;
   if (wide && (W0 >= 1000 || W0 > H0 * 1.05)) {
-    // Computer / tablet in landscape: the photo gets the big area; a side panel holds a square
-    // graph with Edit and Soft Clip under it (like the editor's own tool panel).
-    const sw = Math.max(360, sidePanelWidth(W0) + 20);
-    const gsize = Math.round(clamp(Math.min(sw - 8, bodyH * 0.55), 220, 520));
+    // Computer / tablet in landscape, as in the app: the photo takes the whole left side; the
+    // right panel (40% wide, 340–440 px) holds a compact graph (30% high, 170–280 px), Edit and Soft Clip.
+    const sw = Math.round(clamp(W0 * 0.4, 340, 440));
+    const gsize = Math.round(clamp(H0 * 0.3, 170, 280));
     scr.append(h('div', { class: 'row grow', style: { alignItems: 'stretch', minHeight: 0 } },
       h('div', { class: 'grow', style: { display: 'flex', minWidth: 0, padding: '0 12px 12px' } }, previewArea()),
       h('div', { class: 'scroll-y', 'data-keep': 'curvecontrols', style: { width: sw + 'px', flex: 'none', background: C.bg, borderLeft: '.5px solid ' + C.line } },

@@ -477,18 +477,36 @@ function whiteBalancePanel() {
     live(() => sl.update(S.params.kelvin));
     out.push(sl);
   }
-  const rR = h('div', { class: 'mono', style: { fontSize: '14px' } }), rB = h('div', { class: 'mono', style: { fontSize: '14px' } });
-  const upd = () => {
-    rR.textContent = 'R ' + M.signed(S.params.wbShiftR); rR.style.color = S.params.wbShiftR ? C.amber : C.text;
-    rB.textContent = 'B ' + M.signed(S.params.wbShiftB); rB.style.color = S.params.wbShiftB ? C.amber : C.text;
-  };
-  upd(); live(upd);
+  // − / + move exactly one step; tap the number to type it.
+  const rR = shiftStepper('R', '#FF5A5A', () => S.params.wbShiftR, v => up({ wbShiftR: v }));
+  const rB = shiftStepper('B', '#5A8CFF', () => S.params.wbShiftB, v => up({ wbShiftB: v }));
   out.push(h('div', { class: 'row' },
     h('div', { class: 'grow' }, shiftPad(() => [S.params.wbShiftR, S.params.wbShiftB], (x, y) => up({ wbShiftR: x, wbShiftB: y }),
       { left: 'C', right: 'R', top: 'B', bottom: 'Y', lc: '#4FD1D9', rc: '#FF5A5A', tc: '#5A8CFF', bc: '#FFD24D' }, 120)),
-    h('div', { style: { paddingLeft: '12px' } }, h('div', { class: 'label' }, 'WB shift'), rR, rB,
+    h('div', { style: { paddingLeft: '12px', display: 'flex', flexDirection: 'column', gap: '6px' } }, h('div', { class: 'label' }, 'WB shift'), rR, rB,
       h('button', { class: 'text-btn', style: { fontSize: '11px', paddingLeft: 0 }, onclick: () => up({ wbShiftR: 0, wbShiftB: 0 }) }, 'Centre'))));
   return out;
+}
+/** Label, round − button, a number box you can type in (−9…+9), round + button. */
+function shiftStepper(label, color, get, onSet) {
+  const box = h('input', { class: 'shiftbox', inputmode: 'numeric', 'aria-label': label + ' shift value', maxlength: 3 });
+  const minus = h('button', { class: 'stepbtn', 'aria-label': label + ' shift down', onclick: () => onSet(Math.max(-9, get() - 1)) }, '−');
+  const plus = h('button', { class: 'stepbtn', 'aria-label': label + ' shift up', onclick: () => onSet(Math.min(9, get() + 1)) }, '+');
+  const upd = () => {
+    const v = get();
+    if (document.activeElement !== box) box.value = M.signed(v);
+    box.classList.toggle('changed', v !== 0);
+    minus.disabled = v <= -9; plus.disabled = v >= 9;
+  };
+  const apply = () => {
+    const v = parseInt(box.value.replace('+', '').replace('−', '-').trim(), 10);
+    if (isNaN(v) || clamp(v, -9, 9) === get()) box.value = M.signed(get()); else onSet(clamp(v, -9, 9));
+  };
+  box.addEventListener('input', () => { box.value = box.value.replace(/[^0-9+\-−]/g, '').slice(0, 3); });
+  box.addEventListener('keydown', e => { if (e.key === 'Enter') { apply(); box.blur(); } });
+  box.addEventListener('blur', apply);
+  upd(); live(upd);
+  return h('div', { class: 'row', style: { gap: '6px' } }, h('span', { style: { color, fontSize: '15px', fontWeight: 700, width: '14px' } }, label), minus, box, plus);
 }
 /** 2D pad from −9 to +9 on both axes (like the camera's WB shift grid). x grows right, y grows up. */
 function shiftPad(get, onChange, lab, size) {

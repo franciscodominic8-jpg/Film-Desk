@@ -187,6 +187,12 @@ input, textarea { font: inherit; color: var(--text); }
 .qbox-pointer { width: 100%; height: 11px; display: block; margin-bottom: -1.5px; position: relative; z-index: 1; }
 .qbox { background: #17140E; border: 1.5px solid var(--amber); border-radius: 14px; padding: 10px 14px 2px; display: flex; flex-direction: column; gap: 6px; }
 .qbox .tiles { justify-content: flex-start; }
+.stepbtn { width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--line); font-size: 18px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; flex: none; }
+.stepbtn:disabled { color: var(--line); }
+.stepbtn:hover:not(:disabled) { background: rgba(255,255,255,.06); }
+.shiftbox { width: 52px; height: 36px; border-radius: 8px; background: #0E0E10; border: 1px solid var(--line); text-align: center; font: 15px var(--mono); outline: none; flex: none; }
+.shiftbox.changed { color: var(--amber); border-color: var(--amber); }
+.shiftbox:focus { border-color: var(--amber); }
 .shiftpad { touch-action: none; display: block; margin: 0 auto; cursor: crosshair; }
 .slider-row .row { padding: 0 4px; font-size: 12px; }
 .swatches { display: flex; justify-content: space-between; }
@@ -293,14 +299,14 @@ textarea.field { min-height: 120px; resize: vertical; font: 12px var(--mono); }
 <div id="app"></div>
 <input id="file" type="file" accept="image/*" multiple hidden>
 <noscript><p style="padding:24px">Film Desk needs JavaScript.</p></noscript>
-<script src="model.js?v=7"></script>
-<script src="engine.js?v=7"></script>
-<script src="files.js?v=7"></script>
-<script src="raw.js?v=7"></script>
-<script src="app-core.js?v=7"></script>
-<script src="app-vm.js?v=7"></script>
-<script src="app-ui.js?v=7"></script>
-<script src="app-curvecrop.js?v=7"></script>
-<script src="app-pages.js?v=7"></script>
+<script src="model.js?v=8"></script>
+<script src="engine.js?v=8"></script>
+<script src="files.js?v=8"></script>
+<script src="raw.js?v=8"></script>
+<script src="app-core.js?v=8"></script>
+<script src="app-vm.js?v=8"></script>
+<script src="app-ui.js?v=8"></script>
+<script src="app-curvecrop.js?v=8"></script>
+<script src="app-pages.js?v=8"></script>
 </body>
 </html>
