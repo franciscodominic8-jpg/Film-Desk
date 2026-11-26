@@ -340,8 +340,19 @@ async function boot() {
     }
     rowDrag = null;
   });
-  let rt = 0;
-  window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { if (S.screen === 'editor' && !S.dragging) render(); }, 120); });
+  // Re-layout when the window really changes size. A phone keyboard opening or closing only
+  // changes the height: redrawing then would replace the box being typed in and close the keyboard.
+  let rt = 0, lastW = window.innerWidth;
+  window.addEventListener('resize', () => {
+    clearTimeout(rt);
+    rt = setTimeout(() => {
+      const a = document.activeElement, typing = !!a && /^(INPUT|TEXTAREA)$/.test(a.tagName);
+      const widthChanged = Math.abs(window.innerWidth - lastW) > 1;
+      lastW = window.innerWidth;
+      if (typing && !widthChanged) return;
+      if (S.screen === 'editor' && !S.dragging) render();
+    }, 120);
+  });
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
   // Offline support: keep a copy of the app on this device.
   if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});

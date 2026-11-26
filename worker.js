@@ -1,6 +1,6 @@
 /* Film Desk web — render worker. Keeps the edited photo here so the page never freezes while rendering. */
 'use strict';
-importScripts('model.js?v=8', 'engine.js?v=8', 'raw.js?v=8');
+importScripts('model.js?v=9', 'engine.js?v=9', 'raw.js?v=9');
 const M = self.FDM, E = self.FDE;
 
 let src = null, half = null, stats = null, geoKey = null, geoImg = null;

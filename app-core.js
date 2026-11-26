@@ -94,8 +94,8 @@ function loadRecipes() {
 const W = {
   main: null, thumbs: null, jobs: new Map(), jobSeq: 0,
   init() {
-    this.main = new Worker('worker.js?v=8');
-    this.thumbs = new Worker('worker.js?v=8');
+    this.main = new Worker('worker.js?v=9');
+    this.thumbs = new Worker('worker.js?v=9');
     this.main.onmessage = e => onMainWorker(e.data);
     this.thumbs.onmessage = e => this.route(e.data);
     this.exportW = null;
@@ -114,11 +114,11 @@ const W = {
       this.jobs.set(job, { resolve, reject, onThumb });
       let w = this.thumbs;
       if (target === 'export') {
-        if (!this.exportW) { this.exportW = new Worker('worker.js?v=8'); this.exportW.onmessage = e => this.route(e.data); }
+        if (!this.exportW) { this.exportW = new Worker('worker.js?v=9'); this.exportW.onmessage = e => this.route(e.data); }
         w = this.exportW;
       } else if (target === 'raw') {
         // RAW develops one at a time in their own worker (they are big).
-        if (!this.rawW) { this.rawW = new Worker('worker.js?v=8'); this.rawW.onmessage = e => this.route(e.data); }
+        if (!this.rawW) { this.rawW = new Worker('worker.js?v=9'); this.rawW.onmessage = e => this.route(e.data); }
         w = this.rawW;
       }
       w.postMessage(Object.assign({ job }, msg), transfer || []);
