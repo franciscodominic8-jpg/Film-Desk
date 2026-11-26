@@ -10,8 +10,12 @@ add_library(raw_r SHARED
     LibRaw/src/libraw_datastream.cpp
     LibRaw/src/decoders/canon_600.cpp
     LibRaw/src/decoders/crx.cpp
+    LibRaw/src/decoders/pana8.cpp
     LibRaw/src/decoders/decoders_dcraw.cpp
+    LibRaw/src/decoders/sonycc.cpp
+    LibRaw/src/decompressors/losslessjpeg.cpp
     LibRaw/src/decoders/decoders_libraw_dcrdefs.cpp
+    LibRaw/src/decoders/olympus14.cpp
     LibRaw/src/decoders/decoders_libraw.cpp
     LibRaw/src/decoders/dng.cpp
     LibRaw/src/decoders/fp_dng.cpp
