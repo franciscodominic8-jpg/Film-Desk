@@ -305,5 +305,7 @@ async function boot() {
   let rt = 0;
   window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { if (S.screen === 'editor' && !S.dragging) render(); }, 120); });
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+  // Offline support: keep a copy of the app on this device.
+  if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
 }
 boot();

@@ -14,6 +14,7 @@ Ported from the latest Android build (branch `fix/build-errors`, Nov 23 2026).
 
 Recipes use the same text format as the Android app, so they can be shared both ways.
 Photos never leave the device: everything runs locally (IndexedDB storage, Web Workers for rendering).
+Works offline after the first visit (service worker `sw.js`); install it from the browser menu to get an app icon.
 
 The image engine (`engine.js`) is a line-by-line port of `engine/ImageEngine.kt`; the film look is baked into a
 49³ lookup table per simulation for speed (within 1–4 levels of the exact maths).
