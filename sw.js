@@ -1,7 +1,7 @@
 /* Film Desk web — offline support. Keeps a copy of the app so it opens without internet.
  * Photos are never sent anywhere; they stay in the browser's own storage. */
 'use strict';
-const CACHE = 'filmdesk-v7';
+const CACHE = 'filmdesk-v8';
 const FILES = [
   './', 'index.html', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png', 'material-icons.woff',
   'model.js?v=6', 'engine.js?v=6', 'files.js?v=6', 'raw.js?v=6', 'libraw.wasm?v=1', 'worker.js?v=6',
@@ -18,7 +18,8 @@ self.addEventListener('fetch', e => {
   const req = e.request;
   if (req.method !== 'GET' || new URL(req.url).origin !== location.origin) return;
   e.respondWith(
-    fetch(req).then(res => {
+    // 'no-cache': always ask the server for the newest version (no stale browser copy).
+    fetch(req, { cache: 'no-cache' }).then(res => {
       if (res.ok) { const copy = res.clone(); caches.open(CACHE).then(c => c.put(req, copy)); }
       return res;
     }).catch(() => caches.match(req, { ignoreSearch: req.mode === 'navigate' }).then(r => r || caches.match('index.html')))
