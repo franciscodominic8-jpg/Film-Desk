@@ -1,0 +1,70 @@
+name: Build APK
+
+on:
+  push:
+  workflow_dispatch:
+
+# Needed to publish the APK as a GitHub Release.
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      # GitHub's Ubuntu runners already include the Android SDK.
+      - name: Accept Android SDK licenses
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+
+      - name: Build release APK
+        run: |
+          set -o pipefail
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon 2>&1 | tee build.log
+
+      # On failure, show the compiler errors as annotations on the run page.
+      - name: Show compile errors
+        if: failure()
+        run: |
+          grep -E "^e: " build.log | sed -E 's#file:///home/runner/work/[^/]+/[^/]+/app/src/main/java/com/filmdesk/app/##' | head -10 | while IFS= read -r line; do
+            echo "::error::$line"
+          done
+          grep -A3 "What went wrong" build.log | head -12 | while IFS= read -r line; do
+            [ -n "$line" ] && echo "::warning::$line"
+          done
+
+      # Also save the errors to the ci-logs branch, so they can be read with git.
+      - name: Save error log
+        if: failure()
+        run: |
+          grep -E "^e: |What went wrong|^> " build.log | sed -E 's#file:///home/runner/work/[^/]+/[^/]+/##' | head -80 > errors.txt || true
+          git config user.name "ci"; git config user.email "ci@users.noreply.github.com"
+          git checkout --orphan ci-logs-tmp
+          git rm -rq --cached . || true
+          git add -f errors.txt
+          git commit -qm "Build ${{ github.run_number }} errors (${{ github.sha }})"
+          git push -f origin HEAD:refs/heads/ci-logs
+
+      - name: Name the APK
+        run: cp app/build/outputs/apk/release/app-release.apk FilmDesk.apk
+
+      # One file, no zip: download FilmDesk.apk straight from the Releases page.
+      # https://github.com/<owner>/<repo>/releases/latest/download/FilmDesk.apk always gets the newest build.
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: Film Desk build ${{ github.run_number }}
+          body: |
+            Built from `${{ github.ref_name }}` (${{ github.sha }}).
+            Download **FilmDesk.apk** below and open it on your phone to install.
+          files: FilmDesk.apk
+          target_commitish: ${{ github.sha }}
+          make_latest: true
