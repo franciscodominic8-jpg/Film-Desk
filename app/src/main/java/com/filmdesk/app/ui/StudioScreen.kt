@@ -338,6 +338,17 @@ private fun StudioCell(vm: EditorViewModel, item: StudioItem) {
                 )
             }
         }
+        if (vm.studioRaw[item.id] == true && !vm.selecting) {
+            Text(
+                "RAW", color = Color.White, fontSize = 8.sp, fontFamily = FD.Mono, fontWeight = FontWeight.Bold,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(4.dp)
+                    .clip(RoundedCornerShape(3.dp))
+                    .background(Color(0x66000000))
+                    .padding(horizontal = 4.dp, vertical = 1.dp),
+            )
+        }
         if (copiedFrom) {
             Text(
                 "COPIED", color = FD.OnAmber, fontSize = 10.sp, fontWeight = FontWeight.Bold,

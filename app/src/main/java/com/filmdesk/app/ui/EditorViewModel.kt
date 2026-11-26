@@ -19,6 +19,7 @@ import com.filmdesk.app.data.RecipeStore
 import com.filmdesk.app.data.StudioItem
 import com.filmdesk.app.data.StudioStore
 import com.filmdesk.app.engine.BitmapIO
+import com.filmdesk.app.engine.RawDecoder
 import com.filmdesk.app.engine.ImageEngine
 import com.filmdesk.app.engine.ImageStats
 import com.filmdesk.app.model.EditParams
@@ -75,6 +76,10 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
     var studio by mutableStateOf<List<StudioItem>>(emptyList()); private set
     /** Edited thumbnails, by studio id. */
     val studioThumbs = mutableStateMapOf<Long, Bitmap>()
+    /** Studio photos that are camera RAW files (shown with a RAW badge). */
+    val studioRaw = mutableStateMapOf<Long, Boolean>()
+    /** The photo open in the editor is a camera RAW file. */
+    var currentIsRaw by mutableStateOf(false); private set
     /** Studio photos that can't be read any more (deleted from the phone or access lost). */
     val studioMissing = mutableStateMapOf<Long, Boolean>()
     /** The studio photo open in the editor. */
@@ -548,6 +553,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
             }
             sourceUri = uri
             source = bmp
+            currentIsRaw = withContext(Dispatchers.IO) { RawDecoder.isRaw(ctx, uri) }
             thumbSource = withContext(Dispatchers.Default) {
                 val s = THUMB_EDGE / max(bmp.width, bmp.height).toFloat()
                 Bitmap.createScaledBitmap(
@@ -920,8 +926,15 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
             val direct = ArrayList<Uri>()
             var added = 0
             var failed = 0
+            var notPhotos = 0
             for (uri in uris.distinctBy { mediaKey(it) }) {
                 if (mediaKey(uri) in known) continue
+                // The Files picker also offers documents, videos and so on: keep photos and RAW only.
+                val isPhoto = withContext(Dispatchers.IO) {
+                    val mime = try { cr.getType(uri) } catch (e: Exception) { null }
+                    mime?.startsWith("image/") == true || RawDecoder.isRaw(ctx, uri)
+                }
+                if (!isPhoto) { notPhotos++; continue }
                 val kept = try {
                     cr.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION); true
                 } catch (e: Exception) {
@@ -934,12 +947,19 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
                 added++
             }
             if (direct.isNotEmpty()) added += direct.size.also { importPhotos(direct, quiet = true) }
-            message = when {
-                added == 0 && failed == 0 -> "Already in your Studio"
+            val main = when {
+                added == 0 && failed == 0 && notPhotos == 0 -> "Already in your Studio"
+                added == 0 && failed == 0 -> null
                 failed > 0 -> "Imported $added, couldn't read $failed"
                 added == 1 -> "Imported 1 photo"
                 else -> "Imported $added photos"
             }
+            val skipped = when (notPhotos) {
+                0 -> null
+                1 -> "skipped 1 file that isn't a photo"
+                else -> "skipped $notPhotos files that aren't photos"
+            }
+            message = listOfNotNull(main, skipped).joinToString(", ").replaceFirstChar { it.uppercase() }
         }
     }
 
@@ -955,6 +975,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         studioThumbJobs[item.id] = viewModelScope.launch {
             thumbGate.withPermit {
                 val ctx = getApplication<Application>()
+                if (withContext(Dispatchers.IO) { RawDecoder.isRaw(ctx, item.uri) }) studioRaw[item.id] = true
                 if (useCache) {
                     val cached = withContext(Dispatchers.IO) { studioStore.readThumb(item.id) }
                     if (cached != null) {

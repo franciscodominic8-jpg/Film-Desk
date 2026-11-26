@@ -299,7 +299,8 @@ internal fun PreviewArea(vm: EditorViewModel, modifier: Modifier) {
         }
         val sim = FILM_SIMS[vm.params.sim]
         Text(
-            if (showOriginal) "ORIGINAL" else sim.short.uppercase() + if (vm.params.simStrength < 1f) " · ${(vm.params.simStrength * 100).roundToInt()}%" else "",
+            (if (vm.currentIsRaw) "RAW · " else "") +
+                if (showOriginal) "ORIGINAL" else sim.short.uppercase() + if (vm.params.simStrength < 1f) " · ${(vm.params.simStrength * 100).roundToInt()}%" else "",
             modifier = Modifier.align(Alignment.TopStart).padding(horizontal = 12.dp, vertical = 8.dp),
             color = FD.Text.copy(alpha = 0.85f), fontSize = 10.sp, fontFamily = FD.Mono, letterSpacing = 1.sp,
         )
