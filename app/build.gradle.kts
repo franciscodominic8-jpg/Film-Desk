@@ -16,6 +16,16 @@ android {
         versionCode = 1
         versionName = "0.1.0"
         vectorDrawables { useSupportLibrary = true }
+        // RAW support (LibRaw) is native code: built for phones (arm64, armv7) and x86_64 emulators.
+        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64") }
+        externalNativeBuild { cmake { arguments += listOf("-DANDROID_STL=c++_shared") } }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
     }
 
     // One fixed key (kept in the repo) so every new build installs over the old app and keeps
@@ -46,7 +56,6 @@ android {
 
     buildFeatures { compose = true }
 
-    // One APK that runs on every CPU type (arm64, armv7, x86, x86_64).
     packaging {
         resources { excludes += "/META-INF/{AL2.0,LGPL2.1}" }
     }

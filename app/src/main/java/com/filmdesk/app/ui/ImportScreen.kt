@@ -105,6 +105,13 @@ fun ImportScreen(vm: EditorViewModel) {
             vm.back()
         }
     }
+    // Files app: also reaches camera RAW files (RAF, DNG, CR2, NEF, ARW…) that the photo picker may hide.
+    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        if (uris.isNotEmpty()) {
+            vm.importPicked(uris)
+            vm.back()
+        }
+    }
     val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         granted = hasAccess()
         partial = partialOnly()
@@ -163,7 +170,10 @@ fun ImportScreen(vm: EditorViewModel) {
                     Spacer(Modifier.width(14.dp))
                     Column(Modifier.weight(1f)) {
                         Text("From other apps", color = FD.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                        Text("Google Photos, Files… choose one or many", color = FD.Muted, fontSize = 12.sp)
+                        Text("Google Photos, Files… JPEG, HEIC or RAW", color = FD.Muted, fontSize = 12.sp)
+                    }
+                    TextButton(onClick = { filePicker.launch(arrayOf("image/*", "application/octet-stream")) }) {
+                        Text("Files", color = FD.Amber)
                     }
                     Button(
                         onClick = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },

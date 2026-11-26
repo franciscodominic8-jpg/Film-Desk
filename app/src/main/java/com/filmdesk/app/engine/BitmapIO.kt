@@ -28,6 +28,7 @@ object BitmapIO {
 
     /** Long edge of the full-size photo in pixels (0 if unreadable). */
     fun longEdge(context: Context, uri: Uri): Int {
+        if (RawDecoder.isRaw(context, uri)) return RawDecoder.longEdge(context, uri)
         val o = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         return try {
             context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, o) }
@@ -39,6 +40,8 @@ object BitmapIO {
 
     /** Decodes [uri] so that its long edge is at most [maxLongEdge], honouring EXIF rotation. */
     fun decode(context: Context, uri: Uri, maxLongEdge: Int): Bitmap? {
+        // Camera RAW (RAF, DNG, CR2, NEF, ARW…): developed by LibRaw, already upright.
+        if (RawDecoder.isRaw(context, uri)) return RawDecoder.decode(context, uri, maxLongEdge)
         val cr = context.contentResolver
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         try {
