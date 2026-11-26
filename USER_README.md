@@ -273,8 +273,8 @@ Your original photo is never changed.
 **Are the film simulations exactly the same as my Fujifilm camera?**
 They're close, but not identical. Fujifilm's processing is secret and runs on RAW sensor data inside the camera. Film Desk recreates each look on a finished photo. Results are closest when you start from a Fuji JPEG shot in Provia/Standard.
 
-**Can I edit RAW (.RAF) files?**
-Not yet. RAW support using LibRaw is planned.
+**Can I edit RAW files?**
+Yes. Import RAF, DNG, CR2/CR3, NEF, ARW, ORF, RW2 and other RAW files (use **Files** on the Import screen if the photo picker doesn't show them). Film Desk develops the RAW with the white balance it was shot with, then every tool works on it as usual. Opening a RAW takes a few seconds, and full-size export takes longer than for a JPEG.
 
 **Where are my exported photos?**
 In your gallery, in the folder **Pictures/FilmDesk** (or the subfolder you chose).
