@@ -23,13 +23,24 @@ function renderCurveScreen() {
     h('button', { class: 'btn primary', style: { height: '34px', padding: '0 16px', fontSize: '13px', marginRight: '8px' }, onclick: () => closeCurve() }, 'Done'));
   const scr = h('div', { class: 'screen' }, top);
   const controls = () => [editSection(), h('div', { style: { borderTop: '.5px solid ' + C.line } }), softClipSection()];
-  if (wide) {
+  const hint = () => h('div', { class: 'muted', style: { fontSize: '11px', padding: '10px 14px 16px' } }, 'Click the graph to add points · drag to move · double-click to delete');
+  const bodyH = H0 - 48;
+  if (wide && (W0 >= 1000 || W0 > H0 * 1.05)) {
+    // Computer / tablet in landscape: the photo gets the big area; a side panel holds a square
+    // graph with Edit and Soft Clip under it (like the editor's own tool panel).
+    const sw = Math.max(360, sidePanelWidth(W0) + 20);
+    const gsize = Math.round(clamp(Math.min(sw - 8, bodyH * 0.55), 220, 520));
     scr.append(h('div', { class: 'row grow', style: { alignItems: 'stretch', minHeight: 0 } },
-      h('div', { class: 'grow', style: { display: 'flex', flexDirection: 'column' } },
-        h('div', { style: { flex: '0.45', minHeight: 0, display: 'flex' } }, previewArea()),
-        h('div', { style: { flex: '0.55', minHeight: 0, display: 'flex' } }, graph())),
-      h('div', { class: 'scroll-y', 'data-keep': 'curvecontrols', style: { width: '340px', background: C.bg } }, controls(),
-        h('div', { class: 'muted', style: { fontSize: '11px', padding: '14px' } }, 'Click the graph to add points · drag to move · double-click to delete'))));
+      h('div', { class: 'grow', style: { display: 'flex', minWidth: 0, padding: '0 12px 12px' } }, previewArea()),
+      h('div', { class: 'scroll-y', 'data-keep': 'curvecontrols', style: { width: sw + 'px', flex: 'none', background: C.bg, borderLeft: '.5px solid ' + C.line } },
+        h('div', { style: { height: gsize + 'px', display: 'flex', margin: '4px 4px 0' } }, graph()), controls(), hint())));
+  } else if (wide) {
+    // Tablet held upright: photo on top, graph and controls side by side underneath.
+    const lowerH = Math.round(clamp(bodyH * 0.48, 300, 560));
+    scr.append(h('div', { class: 'grow', style: { display: 'flex', minHeight: 0 } }, previewArea()),
+      h('div', { class: 'row', style: { height: lowerH + 'px', flex: 'none', alignItems: 'stretch', borderTop: '.5px solid ' + C.line } },
+        h('div', { class: 'grow', style: { display: 'flex', minWidth: 0 } }, graph()),
+        h('div', { class: 'scroll-y', 'data-keep': 'curvecontrols', style: { width: '340px', flex: 'none', background: C.bg } }, controls(), hint())));
   } else {
     scr.append(h('div', { style: { height: photoH + 'px', display: 'flex', flex: 'none' } }, previewArea()),
       h('div', { class: 'grow scroll-y', 'data-keep': 'curvecontrols', style: { background: C.bg } },
