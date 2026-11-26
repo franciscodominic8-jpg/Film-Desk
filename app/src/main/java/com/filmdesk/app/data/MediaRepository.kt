@@ -15,7 +15,10 @@ data class MediaItem(val id: Long, val uri: Uri)
 
 /** Lists the phone's photos (newest first) and loads small thumbnails. */
 object MediaRepository {
-    private val cache = LruCache<Long, Bitmap>(150)
+    // Sized by memory (about 24 MB), not by count: thumbnails can be up to 256 x 256.
+    private val cache = object : LruCache<Long, Bitmap>(24 * 1024 * 1024) {
+        override fun sizeOf(key: Long, value: Bitmap) = value.byteCount
+    }
 
     suspend fun recent(context: Context, limit: Int = 500): List<MediaItem> = withContext(Dispatchers.IO) {
         val out = ArrayList<MediaItem>()

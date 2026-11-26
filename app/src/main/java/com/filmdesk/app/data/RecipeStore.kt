@@ -17,6 +17,8 @@ class RecipeStore(context: Context) {
             val arr = JSONArray(raw)
             (0 until arr.length()).mapNotNull { i -> parse(arr.optJSONObject(i)) }
         } catch (e: Exception) {
+            // Keep the unreadable list aside so the next save can't wipe it for good.
+            prefs.edit().putString(KEY_BROKEN, raw).apply()
             emptyList()
         }
     }
@@ -29,6 +31,7 @@ class RecipeStore(context: Context) {
 
     companion object {
         private const val KEY = "list"
+        private const val KEY_BROKEN = "list_unreadable"
         private const val SHARE_PREFIX = "Film Desk recipe"
 
         fun toJson(r: Recipe): JSONObject =

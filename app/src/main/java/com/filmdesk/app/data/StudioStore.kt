@@ -79,7 +79,13 @@ class StudioStore(context: Context) {
         } catch (e: Exception) {
             null
         }
-        val safe = (name ?: "photo.jpg").replace(Regex("[^A-Za-z0-9._-]"), "_").takeLast(80)
+        var safe = (name ?: "photo").replace(Regex("[^A-Za-z0-9._-]"), "_").takeLast(80)
+        // The copy is recognised by its extension later, so a RAW shared without a RAW
+        // file name (or with none) gets ".raw" added; LibRaw reads the real format itself.
+        val isRaw = com.filmdesk.app.engine.RawDecoder.isRaw(context, uri)
+        val e = safe.substringAfterLast('.', "").lowercase()
+        if (isRaw && !com.filmdesk.app.engine.RawDecoder.isRawExtension(e)) safe += ".raw"
+        else if (!isRaw && e.isEmpty()) safe += ".jpg"
         val file = File(importDir, "${System.currentTimeMillis()}_$safe")
         return try {
             context.contentResolver.openInputStream(uri)?.use { input ->

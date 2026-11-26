@@ -549,7 +549,7 @@ private fun ShiftStepper(label: String, color: Color, value: Int, onSet: (Int) -
             onValueChange = { s -> text = s.filter { it.isDigit() || it == '-' || it == '+' || it == '−' }.take(3) },
             singleLine = true,
             textStyle = TextStyle(color = if (changed) FD.Amber else FD.Text, fontFamily = FD.Mono, fontSize = 15.sp, textAlign = TextAlign.Center),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone, imeAction = ImeAction.Done),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
             keyboardActions = KeyboardActions(onDone = { apply(); focus.clearFocus() }),
             cursorBrush = SolidColor(FD.Amber),
             modifier = Modifier

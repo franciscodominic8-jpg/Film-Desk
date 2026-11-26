@@ -52,6 +52,8 @@ object RawDecoder {
         return raw
     }
 
+    fun isRawExtension(e: String) = e.lowercase(Locale.US) in EXTENSIONS
+
     private fun ext(name: String?) = name?.substringAfterLast('.', "")?.lowercase(Locale.US).orEmpty()
 
     private fun detect(context: Context, uri: Uri): Boolean {
