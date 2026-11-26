@@ -279,6 +279,7 @@ async function boot() {
   await loadStudio();
   render();
   const file = document.getElementById('file');
+  file.accept = 'image/*,' + RAW_ACCEPT; // camera RAW too (RAF, DNG, CR2/CR3, NEF, ARW…)
   file.addEventListener('change', () => { if (file.files && file.files.length) importFiles(file.files); });
   // Drag and drop photos anywhere on the Studio.
   let depth = 0;
