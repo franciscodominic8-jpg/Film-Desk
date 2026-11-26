@@ -193,6 +193,10 @@ input, textarea { font: inherit; color: var(--text); }
 .shiftbox { width: 52px; height: 36px; border-radius: 8px; background: #0E0E10; border: 1px solid var(--line); text-align: center; font: 15px var(--mono); outline: none; flex: none; }
 .shiftbox.changed { color: var(--amber); border-color: var(--amber); }
 .shiftbox:focus { border-color: var(--amber); }
+@media (pointer: coarse) {
+  /* Phones/tablets: 16px text in boxes, so the browser doesn't zoom in when one is tapped. */
+  .shiftbox, .numbox, .field, .numfield input { font-size: 16px; }
+}
 .shiftpad { touch-action: none; display: block; margin: 0 auto; cursor: crosshair; }
 .slider-row .row { padding: 0 4px; font-size: 12px; }
 .swatches { display: flex; justify-content: space-between; }
@@ -299,14 +303,14 @@ textarea.field { min-height: 120px; resize: vertical; font: 12px var(--mono); }
 <div id="app"></div>
 <input id="file" type="file" accept="image/*" multiple hidden>
 <noscript><p style="padding:24px">Film Desk needs JavaScript.</p></noscript>
-<script src="model.js?v=9"></script>
-<script src="engine.js?v=9"></script>
-<script src="files.js?v=9"></script>
-<script src="raw.js?v=9"></script>
-<script src="app-core.js?v=9"></script>
-<script src="app-vm.js?v=9"></script>
-<script src="app-ui.js?v=9"></script>
-<script src="app-curvecrop.js?v=9"></script>
-<script src="app-pages.js?v=9"></script>
+<script src="model.js?v=10"></script>
+<script src="engine.js?v=10"></script>
+<script src="files.js?v=10"></script>
+<script src="raw.js?v=10"></script>
+<script src="app-core.js?v=10"></script>
+<script src="app-vm.js?v=10"></script>
+<script src="app-ui.js?v=10"></script>
+<script src="app-curvecrop.js?v=10"></script>
+<script src="app-pages.js?v=10"></script>
 </body>
 </html>

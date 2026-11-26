@@ -340,18 +340,18 @@ async function boot() {
     }
     rowDrag = null;
   });
-  // Re-layout when the window really changes size. A phone keyboard opening or closing only
-  // changes the height: redrawing then would replace the box being typed in and close the keyboard.
-  let rt = 0, lastW = window.innerWidth;
+  // Re-layout when the window changes size — but never while a box is being typed in: on phones the
+  // keyboard (and some browsers' zoom-on-tap) resizes the window, and redrawing would replace the
+  // focused box and close the keyboard. The layout catches up when typing ends.
+  let rt = 0, layoutPending = false;
+  const typing = () => { const a = document.activeElement; return !!a && /^(INPUT|TEXTAREA)$/.test(a.tagName); };
+  const relayout = () => { if (S.screen === 'editor' && !S.dragging) render(); };
   window.addEventListener('resize', () => {
     clearTimeout(rt);
-    rt = setTimeout(() => {
-      const a = document.activeElement, typing = !!a && /^(INPUT|TEXTAREA)$/.test(a.tagName);
-      const widthChanged = Math.abs(window.innerWidth - lastW) > 1;
-      lastW = window.innerWidth;
-      if (typing && !widthChanged) return;
-      if (S.screen === 'editor' && !S.dragging) render();
-    }, 120);
+    rt = setTimeout(() => { if (typing()) layoutPending = true; else relayout(); }, 120);
+  });
+  document.addEventListener('focusout', () => {
+    setTimeout(() => { if (layoutPending && !typing()) { layoutPending = false; relayout(); } }, 350);
   });
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
   // Offline support: keep a copy of the app on this device.
