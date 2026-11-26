@@ -35,6 +35,8 @@ object Exporter {
 
     /** Size of the photo as it is shown (EXIF rotation applied), or null if unreadable. */
     fun orientedSize(context: Context, uri: Uri): Pair<Int, Int>? {
+        // RAW: Android can't read its size; LibRaw gives the developed size, already upright.
+        if (RawDecoder.isRaw(context, uri)) return RawDecoder.size(context, uri)
         val cr = context.contentResolver
         val o = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         try {

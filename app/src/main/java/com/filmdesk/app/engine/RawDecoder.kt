@@ -105,6 +105,13 @@ object RawDecoder {
         Long.MAX_VALUE
     }
 
+    /** Width and height of the developed full-size photo, already upright (null if unreadable). */
+    fun size(context: Context, uri: Uri): Pair<Int, Int>? {
+        if (!loaded) return null
+        val info = withPath(context, uri) { nativeInfo(it) } ?: return null
+        return if (info[0] > 0 && info[1] > 0) info[0] to info[1] else null
+    }
+
     /** Long edge of the developed full-size photo (0 if unreadable). */
     fun longEdge(context: Context, uri: Uri): Int {
         if (!loaded) return 0
