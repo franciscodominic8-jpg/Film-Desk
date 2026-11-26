@@ -1,5 +1,19 @@
 package com.filmdesk.app.ui
 
+import androidx.compose.ui.semantics.Role
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.Canvas
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -504,14 +518,66 @@ private fun WhiteBalancePanel(vm: EditorViewModel) {
             modifier = Modifier.weight(1f),
             padSize = 120.dp,
         )
-        Column(Modifier.padding(start = 12.dp)) {
+        Column(Modifier.padding(start = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text("WB SHIFT", color = FD.Muted, fontSize = 10.sp, fontFamily = FD.Mono, letterSpacing = 1.5.sp)
-            Text("R ${signed(p.wbShiftR.toFloat())}", color = if (p.wbShiftR != 0) FD.Amber else FD.Text, fontFamily = FD.Mono, fontSize = 14.sp)
-            Text("B ${signed(p.wbShiftB.toFloat())}", color = if (p.wbShiftB != 0) FD.Amber else FD.Text, fontFamily = FD.Mono, fontSize = 14.sp)
+            // − / + move exactly one step; tap the number to type it.
+            ShiftStepper("R", Color(0xFFFF5A5A), p.wbShiftR) { vm.updateParams(vm.params.copy(wbShiftR = it)) }
+            ShiftStepper("B", Color(0xFF5A8CFF), p.wbShiftB) { vm.updateParams(vm.params.copy(wbShiftB = it)) }
             TextButton(onClick = { vm.updateParams(vm.params.copy(wbShiftR = 0, wbShiftB = 0)) }) {
                 Text("Centre", color = FD.Muted, fontSize = 11.sp)
             }
         }
+    }
+}
+
+/** Label, round − button, a number box you can type in (−9…+9), round + button. */
+@Composable
+private fun ShiftStepper(label: String, color: Color, value: Int, onSet: (Int) -> Unit) {
+    val focus = LocalFocusManager.current
+    var text by remember(value) { mutableStateOf(signed(value.toFloat())) }
+    val current by rememberUpdatedState(value)
+    fun apply() {
+        val v = text.replace("+", "").replace('−', '-').trim().toIntOrNull()?.coerceIn(-9, 9)
+        if (v == null || v == current) text = signed(current.toFloat()) else onSet(v)
+    }
+    val changed = value != 0
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(label, color = color, fontSize = 15.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(14.dp))
+        StepButton("−", "$label shift down", enabled = value > -9) { onSet((current - 1).coerceAtLeast(-9)) }
+        BasicTextField(
+            value = text,
+            onValueChange = { s -> text = s.filter { it.isDigit() || it == '-' || it == '+' || it == '−' }.take(3) },
+            singleLine = true,
+            textStyle = TextStyle(color = if (changed) FD.Amber else FD.Text, fontFamily = FD.Mono, fontSize = 15.sp, textAlign = TextAlign.Center),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone, imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = { apply(); focus.clearFocus() }),
+            cursorBrush = SolidColor(FD.Amber),
+            modifier = Modifier
+                .width(52.dp)
+                .height(36.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(Color(0xFF0E0E10))
+                .border(1.dp, if (changed) FD.Amber else FD.Line, RoundedCornerShape(8.dp))
+                .onFocusChanged { if (!it.isFocused) apply() }
+                .semantics { contentDescription = "$label shift value" },
+            decorationBox = { inner -> Box(contentAlignment = Alignment.Center) { inner() } },
+        )
+        StepButton("+", "$label shift up", enabled = value < 9) { onSet((current + 1).coerceAtMost(9)) }
+    }
+}
+
+@Composable
+private fun StepButton(symbol: String, description: String, enabled: Boolean, onClick: () -> Unit) {
+    Box(
+        Modifier
+            .size(36.dp)
+            .clip(CircleShape)
+            .border(1.dp, FD.Line, CircleShape)
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+            .semantics { contentDescription = description },
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(symbol, color = if (enabled) FD.Text else FD.Line, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
     }
 }
 

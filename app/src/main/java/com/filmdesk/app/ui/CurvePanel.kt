@@ -119,7 +119,7 @@ private val GRAPH_BG = Color(0xFF1C1D20)
  *  - Edit: link · Y R G B · eyedropper · ⋮, and an intensity slider + number box per channel
  *  - Soft Clip: link · R G B, then Low, Low Soft, High, High Soft (per channel when unlinked)
  * Phone: photo (same size as the normal editor), graph, then the controls (scroll down for
- * Soft Clip). Unfolded: photo and graph on the left, controls on the right.
+ * Soft Clip). Unfolded: photo on the whole left side; graph, Edit and Soft Clip on the right.
  */
 @Composable
 fun CurveScreen(vm: EditorViewModel) {
@@ -136,14 +136,16 @@ fun CurveScreen(vm: EditorViewModel) {
         Column(Modifier.fillMaxSize()) {
             CurveTopBar(vm)
             if (wide) {
+                // Unfolded: the photo takes the whole left side; graph, Edit and Soft Clip
+                // sit in a panel on the right (graph on top, kept compact).
+                val panelW = (maxWidth * 0.4f).coerceIn(340.dp, 440.dp)
+                val wideGraphH = (maxHeight * 0.3f).coerceIn(170.dp, 280.dp)
                 Row(Modifier.fillMaxSize()) {
-                    Column(Modifier.weight(1f).fillMaxHeight()) {
-                        PreviewArea(vm, Modifier.fillMaxWidth().weight(0.45f))
-                        Graph(vm, channel, Modifier.fillMaxWidth().weight(0.55f))
-                    }
+                    PreviewArea(vm, Modifier.weight(1f).fillMaxHeight())
                     Column(
-                        Modifier.width(340.dp).fillMaxHeight().background(FD.Bg).verticalScroll(rememberScrollState()),
+                        Modifier.width(panelW).fillMaxHeight().background(FD.Bg).verticalScroll(rememberScrollState()),
                     ) {
+                        Graph(vm, channel, Modifier.fillMaxWidth().height(wideGraphH).padding(4.dp))
                         EditSection(vm, channel) { channel = it }
                         HorizontalDivider(color = FD.Line, thickness = 0.5.dp)
                         SoftClipSection(vm, softCh) { softCh = it }
