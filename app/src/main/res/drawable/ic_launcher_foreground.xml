@@ -1,11 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Lumora Film logo: the evening sun inside camera viewfinder corners. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp" android:height="108dp"
     android:viewportWidth="108" android:viewportHeight="108">
-    <path android:fillColor="#00000000" android:strokeColor="#F2A33A" android:strokeWidth="4"
-        android:pathData="M54,36a18,18 0,1 1,0 36a18,18 0,1 1,0 -36z" />
-    <path android:fillColor="#F2A33A"
-        android:pathData="M54,47a7,7 0,1 1,0 14a7,7 0,1 1,0 -14z" />
-    <path android:fillColor="#F1F0EC"
-        android:pathData="M34,28h5v4h-5zM44,28h5v4h-5zM54,28h5v4h-5zM64,28h5v4h-5zM74,28h5v4h-5zM34,76h5v4h-5zM44,76h5v4h-5zM54,76h5v4h-5zM64,76h5v4h-5zM74,76h5v4h-5z" />
+    <path android:fillColor="#00000000" android:strokeColor="#FF221A15"
+        android:strokeWidth="3" android:strokeLineCap="round" android:strokeLineJoin="round"
+        android:pathData="M32.2,43.1V32.2H43.1M64.9,32.2H75.8V43.1M75.8,64.9V75.8H64.9M43.1,75.8H32.2V64.9" />
+    <path android:fillColor="#FFE0702A"
+        android:pathData="M47,51.7a11.7,11.7 0,1 1,23.4 0a11.7,11.7 0,1 1,-23.4 0z" />
+    <path android:fillColor="#FF221A15"
+        android:pathData="M38.6,65.5h30.8a1,1 0,0 1,0 2h-30.8a1,1 0,0 1,0 -2z" />
 </vector>

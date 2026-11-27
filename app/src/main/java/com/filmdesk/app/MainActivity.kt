@@ -38,7 +38,7 @@ class MainActivity : ComponentActivity() {
         handleIntent(intent)
     }
 
-    /** Opens photos shared to the app or opened with "Edit with Film Desk". */
+    /** Opens photos shared to the app or opened with "Edit with Lumora Film". */
     private fun handleIntent(intent: Intent?) {
         val uri: Uri? = when (intent?.action) {
             Intent.ACTION_SEND -> IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)

@@ -221,7 +221,7 @@ object Exporter {
                     if ((gps && s.keepLocation) || (!gps && s.cameraInfo)) tags[k] = v
                 }
             }
-            tags[ExifInterface.TAG_SOFTWARE] = "Film Desk"
+            tags[ExifInterface.TAG_SOFTWARE] = "Lumora Film"
             if (s.embedRecipe) tags[ExifInterface.TAG_USER_COMMENT] = "FilmDeskRecipe:" + p.toJson()
         }
         val c = s.copyright.trim()
@@ -241,7 +241,7 @@ object Exporter {
         exif.saveAttributes()
     }
 
-    /** Saves to Pictures/FilmDesk[/folder]. Returns the new file's Uri. */
+    /** Saves to Pictures/LumoraFilm[/folder]. Returns the new file's Uri. */
     fun saveToGallery(
         context: Context, bytes: ByteArray, s: ExportSettings, tags: Map<String, String>?, w: Int, h: Int, name: String,
     ): Uri {

@@ -1,4 +1,4 @@
-# Film Desk — User Guide
+# Lumora Film — User Guide
 
 A Fujifilm-style photo editor for Android. Give any photo the look of Fujifilm's film simulations and in-camera settings, then fine-tune it with pro tools, curves and crop.
 
@@ -25,7 +25,7 @@ Made for the Galaxy Z Fold, and works on any Android 7.0+ phone or tablet, folde
 
 ## 1. Install and update
 
-1. On your phone, open **[FilmDesk.apk](https://github.com/julian-ymo/Film-Desk/releases/latest/download/FilmDesk.apk)** (always the newest build).
+1. On your phone, open **[LumoraFilm.apk](https://github.com/julian-ymo/Film-Desk/releases/latest/download/LumoraFilm.apk)** (always the newest build).
 2. If Android asks, allow your browser or Files app to **install unknown apps**.
 3. Tap **Install**.
 
@@ -55,8 +55,8 @@ The Studio is the start screen: a grid of the photos you've imported, each with 
 - **Reset** — remove the edits.
 - **Remove** — take them out of the Studio. Your original photos are never deleted.
 
-> Film Desk keeps a private copy of each imported photo, so edits still work even if the original is moved.
-> You can also open a photo straight from another app with **Share → Film Desk** or **Edit with → Film Desk**.
+> Lumora Film keeps a private copy of each imported photo, so edits still work even if the original is moved.
+> You can also open a photo straight from another app with **Share → Lumora Film** or **Edit with → Lumora Film**.
 
 ---
 
@@ -236,7 +236,7 @@ Tap **Export** in the editor, or select photos in the Studio → **Export**.
 | **Limit file size** | Keep the file under a size you choose (e.g. 2 MB); the best quality that fits is used. JPEG and lossy WebP. |
 | **Output sharpening** | Off, Screen, Matte or Glossy paper × Low / Standard / High. |
 | **Metadata** | All, Copyright only, or None. With All, choose camera info, location (GPS) and embedding the recipe. JPEG only. |
-| **Save to** | `Pictures/FilmDesk/` plus an optional folder name, e.g. `Pictures/FilmDesk/Trip`. |
+| **Save to** | `Pictures/LumoraFilm/` plus an optional folder name, e.g. `Pictures/LumoraFilm/Trip`. |
 | **Watermark** | Your text (e.g. © Your Name), position, size, opacity and colour, with a live preview. |
 
 The top of the screen shows the output size and an estimated file size.
@@ -271,15 +271,15 @@ Your original photo is never changed.
 ## 12. FAQ
 
 **Are the film simulations exactly the same as my Fujifilm camera?**
-They're close, but not identical. Fujifilm's processing is secret and runs on RAW sensor data inside the camera. Film Desk recreates each look on a finished photo. Results are closest when you start from a Fuji JPEG shot in Provia/Standard.
+They're close, but not identical. Fujifilm's processing is secret and runs on RAW sensor data inside the camera. Lumora Film recreates each look on a finished photo. Results are closest when you start from a Fuji JPEG shot in Provia/Standard.
 
 **Can I edit RAW files?**
-Yes. Import RAF, DNG, CR2/CR3, NEF, ARW, ORF, RW2 and other RAW files (use **Files** on the Import screen if the photo picker doesn't show them). Film Desk develops the RAW with the white balance it was shot with, then every tool works on it as usual. Opening a RAW takes a few seconds, and full-size export takes longer than for a JPEG.
+Yes. Import RAF, DNG, CR2/CR3, NEF, ARW, ORF, RW2 and other RAW files (use **Files** on the Import screen if the photo picker doesn't show them). Lumora Film develops the RAW with the white balance it was shot with, then every tool works on it as usual. Opening a RAW takes a few seconds, and full-size export takes longer than for a JPEG.
 
 **Where are my exported photos?**
-In your gallery, in the folder **Pictures/FilmDesk** (or the subfolder you chose).
+In your gallery, in the folder **Pictures/LumoraFilm** (or the subfolder you chose).
 
-**Does Film Desk change or delete my original photos?**
+**Does Lumora Film change or delete my original photos?**
 No. It works on a private copy, and exports are saved as new files.
 
 **I removed a photo from the Studio. Is it gone from my phone?**
@@ -292,4 +292,4 @@ No. New versions install over the old one and keep everything.
 
 ---
 
-"Fujifilm", "Provia", "Velvia", "Astia", "Classic Chrome", "Reala Ace", "Eterna", "Acros" and the other film simulation names are trademarks of FUJIFILM Corporation. Film Desk is not affiliated with or endorsed by Fujifilm.
+"Fujifilm", "Provia", "Velvia", "Astia", "Classic Chrome", "Reala Ace", "Eterna", "Acros" and the other film simulation names are trademarks of FUJIFILM Corporation. Lumora Film is not affiliated with or endorsed by Fujifilm.

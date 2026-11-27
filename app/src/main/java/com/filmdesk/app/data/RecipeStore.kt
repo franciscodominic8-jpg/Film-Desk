@@ -32,7 +32,7 @@ class RecipeStore(context: Context) {
     companion object {
         private const val KEY = "list"
         private const val KEY_BROKEN = "list_unreadable"
-        private const val SHARE_PREFIX = "Film Desk recipe"
+        private const val SHARE_PREFIX = "Lumora Film recipe"
 
         fun toJson(r: Recipe): JSONObject =
             JSONObject().put("id", r.id).put("name", r.name).put("params", r.params.toJson())
@@ -47,7 +47,7 @@ class RecipeStore(context: Context) {
             )
         }
 
-        /** Text that can be pasted into a chat; another Film Desk user can import it. */
+        /** Text that can be pasted into a chat; another Lumora Film user can import it. */
         fun shareText(r: Recipe): String =
             "$SHARE_PREFIX \"${r.name}\"\n" + JSONObject().put("name", r.name).put("params", r.params.toJson()).toString()
 

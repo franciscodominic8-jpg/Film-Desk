@@ -11,7 +11,7 @@ import kotlin.math.roundToInt
 /**
  * RAW photos (Fujifilm RAF, DNG, CR2/CR3, NEF, ARW, ORF, RW2, PEF, SRW, ...) through LibRaw.
  * The RAW is developed neutrally (white balance as shot, sRGB) into a normal Bitmap, and from
- * there Film Desk's film looks, Q Menu and Pro tools work exactly as on a JPEG.
+ * there Lumora Film's film looks, Q Menu and Pro tools work exactly as on a JPEG.
  */
 object RawDecoder {
 

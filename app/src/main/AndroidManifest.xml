@@ -39,7 +39,7 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- "Share to Film Desk" and "Open with / Edit with Film Desk" from the gallery -->
+            <!-- "Share to Lumora Film" and "Open with / Edit with Lumora Film" from the gallery -->
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />

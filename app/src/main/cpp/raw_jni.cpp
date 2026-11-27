@@ -1,4 +1,4 @@
-// Bridge between Film Desk and LibRaw: develops a RAW file (Fujifilm RAF, DNG, CR2/CR3, NEF,
+// Bridge between Lumora Film and LibRaw: develops a RAW file (Fujifilm RAF, DNG, CR2/CR3, NEF,
 // ARW, ORF, RW2, ...) into an sRGB Android Bitmap that the editor then treats like any photo.
 #include <jni.h>
 #include <android/bitmap.h>
@@ -15,7 +15,7 @@ namespace {
 
 LibRaw *handle(jlong h) { return reinterpret_cast<LibRaw *>(h); }
 
-// Opens [path] with the settings Film Desk always uses. Returns nullptr on failure.
+// Opens [path] with the settings Lumora Film always uses. Returns nullptr on failure.
 LibRaw *openRaw(JNIEnv *env, jstring jpath) {
     const char *path = env->GetStringUTFChars(jpath, nullptr);
     auto *raw = new LibRaw();
@@ -55,7 +55,7 @@ Java_com_filmdesk_app_engine_RawDecoder_nativeDevelop(JNIEnv *env, jclass, jstri
     LibRaw *raw = openRaw(env, jpath);
     if (!raw) return 0;
     auto &o = raw->imgdata.params;
-    o.use_camera_wb = 1;          // white balance as shot; Film Desk's own WB works on top
+    o.use_camera_wb = 1;          // white balance as shot; Lumora Film's own WB works on top
     o.use_camera_matrix = 1;
     o.output_color = 1;           // sRGB
     o.output_bps = 8;

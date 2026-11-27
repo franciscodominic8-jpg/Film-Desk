@@ -819,7 +819,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         exporting = true
         viewModelScope.launch {
             try {
-                val res = exportOne(uri, p, st, s, share, "FilmDesk_${System.currentTimeMillis()}")
+                val res = exportOne(uri, p, st, s, share, "LumoraFilm_${System.currentTimeMillis()}")
                 if (!share) {
                     message = "Saved to Pictures/${s.folderPath} (${res.w} × ${res.h} · ${formatBytes(res.bytes)})"
                 }
@@ -855,7 +855,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
                 for ((i, item) in items.withIndex()) {
                     batchProgress = "Exporting ${i + 1} of ${items.size}…"
                     try {
-                        val res = exportOne(item.uri, item.params ?: EditParams(), null, s, false, "FilmDesk_${stamp}_${i + 1}")
+                        val res = exportOne(item.uri, item.params ?: EditParams(), null, s, false, "LumoraFilm_${stamp}_${i + 1}")
                         ok++
                         total += res.bytes
                     } catch (e: CancellationException) {

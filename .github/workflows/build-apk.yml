@@ -53,18 +53,22 @@ jobs:
           git push -f origin HEAD:refs/heads/ci-logs
 
       - name: Name the APK
-        run: cp app/build/outputs/apk/release/app-release.apk FilmDesk.apk
+        run: |
+          cp app/build/outputs/apk/release/app-release.apk LumoraFilm.apk
+          cp LumoraFilm.apk FilmDesk.apk   # same file under the old name, so old links keep working
 
-      # One file, no zip: download FilmDesk.apk straight from the Releases page.
-      # https://github.com/<owner>/<repo>/releases/latest/download/FilmDesk.apk always gets the newest build.
+      # One file, no zip: download LumoraFilm.apk straight from the Releases page.
+      # https://github.com/<owner>/<repo>/releases/latest/download/LumoraFilm.apk always gets the newest build.
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
-          name: Film Desk build ${{ github.run_number }}
+          name: Lumora Film build ${{ github.run_number }}
           body: |
             Built from `${{ github.ref_name }}` (${{ github.sha }}).
-            Download **FilmDesk.apk** below and open it on your phone to install.
-          files: FilmDesk.apk
+            Download **LumoraFilm.apk** below and open it on your phone to install.
+          files: |
+            LumoraFilm.apk
+            FilmDesk.apk
           target_commitish: ${{ github.sha }}
           make_latest: true

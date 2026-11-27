@@ -388,7 +388,7 @@ fun ExportScreen(vm: EditorViewModel) {
                 "Save to" -> {
 
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("Pictures/FilmDesk/", color = FD.Muted, fontSize = 14.sp)
+                            Text("Pictures/LumoraFilm/", color = FD.Muted, fontSize = 14.sp)
                             OutlinedTextField(
                                 value = s.folder,
                                 // Spaces are fine while typing; the name is tidied when saving.

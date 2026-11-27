@@ -46,7 +46,7 @@ data class ExportSettings(
     val keepLocation: Boolean = false,
     val embedRecipe: Boolean = true,
     val copyright: String = "",
-    /** Subfolder inside Pictures/FilmDesk ("" = none). */
+    /** Subfolder inside Pictures/LumoraFilm ("" = none). */
     val folder: String = "",
     val watermark: Boolean = false,
     val wmText: String = "",
@@ -66,7 +66,7 @@ data class ExportSettings(
     /** Metadata is written only into JPEG, where it is reliable on every phone. */
     val canWriteMetadata: Boolean get() = format == ExportFormat.JPEG
 
-    val folderPath: String get() = "FilmDesk" + (cleanFolder(folder).takeIf { it.isNotEmpty() }?.let { "/$it" } ?: "")
+    val folderPath: String get() = "LumoraFilm" + (cleanFolder(folder).takeIf { it.isNotEmpty() }?.let { "/$it" } ?: "")
 
     fun toJson(): JSONObject = JSONObject().apply {
         put("format", format.name); put("quality", quality); put("webpLossless", webpLossless)
