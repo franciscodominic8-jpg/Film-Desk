@@ -85,17 +85,26 @@ const LS = {
 };
 function saveRecipes() { LS.set('recipes', S.recipes.map(r => ({ id: r.id, name: r.name, params: M.toJson(r.params) }))); }
 function loadRecipes() {
-  const raw = LS.get('recipes', null);
+  let text = null, raw = null;
+  try { text = localStorage.getItem('fd.recipes'); } catch (_) { }
+  if (text != null) {
+    try { raw = JSON.parse(text); } catch (_) { raw = null; }
+    // Keep an unreadable list aside so the next save can't wipe it for good (as in the app).
+    if (!Array.isArray(raw)) { try { localStorage.setItem('fd.recipes_unreadable', text); } catch (_) { } raw = null; }
+  }
   if (!raw) { S.recipes = M.starterRecipes(); saveRecipes(); return; }
-  S.recipes = raw.map(r => ({ id: r.id, name: String(r.name || 'Recipe').slice(0, 60), params: M.withoutGeometry(M.fromJson(r.params)) }));
+  S.recipes = raw.map(r => {
+    try { return { id: r.id, name: String(r.name || 'Recipe').slice(0, 60), params: M.withoutGeometry(M.fromJson(r.params)) }; }
+    catch (_) { return null; }
+  }).filter(Boolean);
 }
 
 // ------------------------------------------------------------------ workers
 const W = {
   main: null, thumbs: null, jobs: new Map(), jobSeq: 0,
   init() {
-    this.main = new Worker('worker.js?v=10');
-    this.thumbs = new Worker('worker.js?v=10');
+    this.main = new Worker('worker.js?v=11');
+    this.thumbs = new Worker('worker.js?v=11');
     this.main.onmessage = e => onMainWorker(e.data);
     this.thumbs.onmessage = e => this.route(e.data);
     this.exportW = null;
@@ -114,11 +123,11 @@ const W = {
       this.jobs.set(job, { resolve, reject, onThumb });
       let w = this.thumbs;
       if (target === 'export') {
-        if (!this.exportW) { this.exportW = new Worker('worker.js?v=10'); this.exportW.onmessage = e => this.route(e.data); }
+        if (!this.exportW) { this.exportW = new Worker('worker.js?v=11'); this.exportW.onmessage = e => this.route(e.data); }
         w = this.exportW;
       } else if (target === 'raw') {
         // RAW develops one at a time in their own worker (they are big).
-        if (!this.rawW) { this.rawW = new Worker('worker.js?v=10'); this.rawW.onmessage = e => this.route(e.data); }
+        if (!this.rawW) { this.rawW = new Worker('worker.js?v=11'); this.rawW.onmessage = e => this.route(e.data); }
         w = this.rawW;
       }
       w.postMessage(Object.assign({ job }, msg), transfer || []);

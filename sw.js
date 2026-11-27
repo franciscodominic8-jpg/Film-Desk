@@ -1,11 +1,11 @@
 /* Lumora Film web — offline support. Keeps a copy of the app so it opens without internet.
  * Photos are never sent anywhere; they stay in the browser's own storage. */
 'use strict';
-const CACHE = 'filmdesk-v14';
+const CACHE = 'filmdesk-v15';
 const FILES = [
   './', 'index.html', 'manifest.webmanifest', 'icon-lumora.svg', 'icon-lumora-192.png', 'icon-lumora-512.png', 'material-icons.woff',
-  'model.js?v=10', 'engine.js?v=10', 'files.js?v=10', 'raw.js?v=10', 'libraw.wasm?v=1', 'worker.js?v=10',
-  'app-core.js?v=10', 'app-vm.js?v=10', 'app-ui.js?v=10', 'app-curvecrop.js?v=10', 'app-pages.js?v=10',
+  'model.js?v=11', 'engine.js?v=11', 'files.js?v=11', 'raw.js?v=11', 'libraw.wasm?v=1', 'worker.js?v=11',
+  'app-core.js?v=11', 'app-vm.js?v=11', 'app-ui.js?v=11', 'app-curvecrop.js?v=11', 'app-pages.js?v=11',
 ];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)).then(() => self.skipWaiting()));

@@ -1,6 +1,6 @@
 /* Lumora Film web — render worker. Keeps the edited photo here so the page never freezes while rendering. */
 'use strict';
-importScripts('model.js?v=10', 'engine.js?v=10', 'raw.js?v=10');
+importScripts('model.js?v=11', 'engine.js?v=11', 'raw.js?v=11');
 const M = self.FDM, E = self.FDE;
 
 let src = null, half = null, stats = null, geoKey = null, geoImg = null;
