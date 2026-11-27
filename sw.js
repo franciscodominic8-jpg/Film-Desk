@@ -1,7 +1,7 @@
-/* Film Desk web — offline support. Keeps a copy of the app so it opens without internet.
+/* Lumora Film web — offline support. Keeps a copy of the app so it opens without internet.
  * Photos are never sent anywhere; they stay in the browser's own storage. */
 'use strict';
-const CACHE = 'filmdesk-v12';
+const CACHE = 'filmdesk-v13';
 const FILES = [
   './', 'index.html', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png', 'material-icons.woff',
   'model.js?v=10', 'engine.js?v=10', 'files.js?v=10', 'raw.js?v=10', 'libraw.wasm?v=1', 'worker.js?v=10',

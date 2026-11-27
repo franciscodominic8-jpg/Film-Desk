@@ -1,4 +1,4 @@
-/* Film Desk web — render worker. Keeps the edited photo here so the page never freezes while rendering. */
+/* Lumora Film web — render worker. Keeps the edited photo here so the page never freezes while rendering. */
 'use strict';
 importScripts('model.js?v=10', 'engine.js?v=10', 'raw.js?v=10');
 const M = self.FDM, E = self.FDE;
