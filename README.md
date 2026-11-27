@@ -1,4 +1,4 @@
-# Film Desk — Fujifilm-style photo editor for Android
+# Lumora Film (formerly Film Desk) — film-style photo editor for Android
 
 Kotlin + Jetpack Compose app that recreates Fujifilm's in-camera settings on any photo.
 

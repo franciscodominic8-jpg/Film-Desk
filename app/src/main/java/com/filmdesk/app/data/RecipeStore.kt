@@ -29,7 +29,7 @@ class RecipeStore(context: Context) {
 
     companion object {
         private const val KEY = "list"
-        private const val SHARE_PREFIX = "Film Desk recipe"
+        private const val SHARE_PREFIX = "Lumora Film recipe"
 
         fun toJson(r: Recipe): JSONObject =
             JSONObject().put("id", r.id).put("name", r.name).put("params", r.params.toJson())

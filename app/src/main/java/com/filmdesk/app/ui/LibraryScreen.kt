@@ -120,7 +120,7 @@ fun LibraryScreen(vm: EditorViewModel) {
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(Modifier.weight(1f)) {
-                    SectionLabel("Film Desk")
+                    SectionLabel("Lumora Film")
                     Text("Library", color = FD.Text, fontSize = 28.sp, fontWeight = FontWeight.Bold)
                 }
                 OutlinedButton(onClick = { vm.navigate(Screen.Recipes) }) {
@@ -159,7 +159,7 @@ fun LibraryScreen(vm: EditorViewModel) {
                     Icon(Icons.Filled.PhotoLibrary, contentDescription = null, tint = FD.Muted, modifier = Modifier.size(48.dp))
                     Text("Browse your gallery here", color = FD.Text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                     Text(
-                        "Allow photo access to see your pictures in Film Desk. You can also just use Pick above.",
+                        "Allow photo access to see your pictures in Lumora Film. You can also just use Pick above.",
                         color = FD.Muted, fontSize = 13.sp,
                     )
                     Button(

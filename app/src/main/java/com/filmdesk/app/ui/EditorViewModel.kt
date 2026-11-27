@@ -320,7 +320,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
                 } else {
                     withContext(Dispatchers.IO) { BitmapIO.saveToGallery(ctx, out, s.format, s.quality, json, uri, s.keepLocation) }
                         ?: error("Couldn't save the photo")
-                    message = "Saved to Pictures/FilmDesk (${out.width}×${out.height})"
+                    message = "Saved to Pictures/LumoraFilm (${out.width}×${out.height})"
                 }
             } catch (e: CancellationException) {
                 throw e

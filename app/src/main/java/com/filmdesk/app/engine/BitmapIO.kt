@@ -120,20 +120,20 @@ object BitmapIO {
         return out
     }
 
-    /** Saves to Pictures/FilmDesk. Returns the new image's Uri, or null on failure. */
+    /** Saves to Pictures/LumoraFilm. Returns the new image's Uri, or null on failure. */
     fun saveToGallery(
         context: Context, bmp: Bitmap, format: ExportFormat, quality: Int, recipeJson: String?,
         source: Uri? = null, keepLocation: Boolean = false,
     ): Uri? {
         val original = if (format == ExportFormat.JPEG && source != null) readOriginalExif(context, source, keepLocation) else null
-        val name = "FilmDesk_${System.currentTimeMillis()}.${format.ext}"
+        val name = "LumoraFilm_${System.currentTimeMillis()}.${format.ext}"
         val compress = if (format == ExportFormat.PNG) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG
         val cr = context.contentResolver
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val values = ContentValues().apply {
                 put(MediaStore.Images.Media.DISPLAY_NAME, name)
                 put(MediaStore.Images.Media.MIME_TYPE, format.mime)
-                put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/FilmDesk")
+                put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/LumoraFilm")
                 put(MediaStore.Images.Media.IS_PENDING, 1)
             }
             val uri = cr.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values) ?: return null
@@ -155,7 +155,7 @@ object BitmapIO {
             }
         } else {
             @Suppress("DEPRECATION")
-            val dir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), "FilmDesk")
+            val dir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), "LumoraFilm")
             if (!dir.exists() && !dir.mkdirs()) return null
             val file = File(dir, name)
             val ok = FileOutputStream(file).use { bmp.compress(compress, quality, it) }
@@ -213,7 +213,7 @@ object BitmapIO {
         exif.setAttribute(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL.toString())
         exif.setAttribute(ExifInterface.TAG_PIXEL_X_DIMENSION, bmp.width.toString())
         exif.setAttribute(ExifInterface.TAG_PIXEL_Y_DIMENSION, bmp.height.toString())
-        exif.setAttribute(ExifInterface.TAG_SOFTWARE, "Film Desk")
+        exif.setAttribute(ExifInterface.TAG_SOFTWARE, "Lumora Film")
         if (recipeJson != null) exif.setAttribute(ExifInterface.TAG_USER_COMMENT, "FilmDeskRecipe:$recipeJson")
         exif.saveAttributes()
     }
@@ -227,7 +227,7 @@ object BitmapIO {
         // Only clear old copies (over an hour), so a share that's still being read isn't broken.
         val cutoff = System.currentTimeMillis() - 60 * 60 * 1000L
         dir.listFiles()?.forEach { if (it.lastModified() < cutoff) it.delete() }
-        val file = File(dir, "FilmDesk_${System.currentTimeMillis()}.${format.ext}")
+        val file = File(dir, "LumoraFilm_${System.currentTimeMillis()}.${format.ext}")
         val compress = if (format == ExportFormat.PNG) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG
         FileOutputStream(file).use { bmp.compress(compress, quality, it) }
         if (format == ExportFormat.JPEG) {
